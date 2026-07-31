@@ -28,12 +28,11 @@ class Imgforge_Queue {
 
     private function __construct() {
         add_action( self::CRON_HOOK, array( $this, 'process_batch' ) );
+        add_filter( 'cron_schedules', array( $this, 'register_cron_interval' ) );
 
         if ( ! wp_next_scheduled( self::CRON_HOOK ) ) {
             wp_schedule_event( time(), 'imgforge_five_minutes', self::CRON_HOOK );
         }
-
-        add_filter( 'cron_schedules', array( $this, 'register_cron_interval' ) );
     }
 
     /**
@@ -97,39 +96,48 @@ class Imgforge_Queue {
      * @return array Stats about this batch run, used by the AJAX response.
      */
     public function process_batch() {
-        global $wpdb;
-        $table      = $this->table_name();
-        $batch_size = max( 1, (int) Imgforge_Settings::get( 'batch_size' ) );
+    global $wpdb;
+    $table = $this->table_name();
 
-        // phpcs:ignore WordPress.DB.DirectDatabaseQuery.DirectQuery
-        $rows = $wpdb->get_results( $wpdb->prepare(
-            "SELECT id, attachment_id FROM {$table} WHERE status = 'pending' ORDER BY id ASC LIMIT %d",
-            $batch_size
-        ) );
+    $time_budget_seconds = (float) apply_filters( 'imgforge_batch_time_budget', 20 );
+    $start_time          = microtime( true );
 
-        $processed = 0;
-        $failed    = 0;
+    $max_rows_to_fetch = max( 1, (int) Imgforge_Settings::get( 'batch_size' ) );
 
-        foreach ( $rows as $row ) {
-            $this->mark_status( $row->id, 'processing' );
+    // phpcs:ignore WordPress.DB.DirectDatabaseQuery.DirectQuery
+    $rows = $wpdb->get_results( $wpdb->prepare(
+        "SELECT id, attachment_id FROM {$table} WHERE status = 'pending' ORDER BY id ASC LIMIT %d",
+        $max_rows_to_fetch
+    ) );
 
-            $result = Imgforge_Optimizer::process( (int) $row->attachment_id );
+    $processed = 0;
+    $failed    = 0;
 
-            if ( $result['success'] ) {
-                $this->mark_status( $row->id, 'done' );
-                $processed++;
-            } else {
-                $this->mark_failed( $row->id, $result['error'] );
-                $failed++;
-            }
+    foreach ( $rows as $row ) {
+
+        if ( ( microtime( true ) - $start_time ) >= $time_budget_seconds ) {
+            break;
         }
 
-        return array(
-            'processed' => $processed,
-            'failed'    => $failed,
-            'remaining' => $this->count_pending(),
-        );
+        $this->mark_status( $row->id, 'processing' );
+
+        $result = Imgforge_Optimizer::process( (int) $row->attachment_id );
+
+        if ( $result['success'] ) {
+            $this->mark_status( $row->id, 'done' );
+            $processed++;
+        } else {
+            $this->mark_failed( $row->id, $result['error'] );
+            $failed++;
+        }
     }
+
+    return array(
+        'processed' => $processed,
+        'failed'    => $failed,
+        'remaining' => $this->count_pending(),
+    );
+}
 
     /**
      * Marks a row's attempt count and error, and re-queues it as

@@ -97,5 +97,10 @@ function imgforge_deactivate() {
 add_action( 'plugins_loaded', 'imgforge_init' );
 
 function imgforge_init() {
+    Imgforge_Queue::get_instance();
+    Imgforge_Core::get_instance();
 
+    if ( is_admin() ) {
+        Imgforge_Admin::get_instance();
+    }
 }

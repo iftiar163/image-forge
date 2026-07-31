@@ -1,0 +1,83 @@
+/**
+ * Image Forge — Admin styles
+ *
+ * Scoped entirely under .imgforge-wrap so nothing here can leak
+ * onto other wp-admin screens.
+ */
+
+.imgforge-wrap {
+	max-width: 800px;
+}
+
+.imgforge-wrap h1 {
+	display: flex;
+	align-items: center;
+	gap: 8px;
+}
+
+/* Settings page: group related fields visually without fighting
+   the default WP Settings API table layout. */
+.imgforge-wrap .form-table th {
+	width: 220px;
+}
+
+.imgforge-wrap input[type="range"] {
+	width: 260px;
+	vertical-align: middle;
+}
+
+.imgforge-wrap output {
+	display: inline-block;
+	min-width: 32px;
+	font-weight: 600;
+	margin-left: 8px;
+}
+
+.imgforge-wrap .description {
+	color: #646970;
+	font-style: italic;
+}
+
+/* Bulk Optimize screen */
+#imgforge-progress-wrap {
+	background: #fff;
+	border: 1px solid #dcdcde;
+	border-radius: 4px;
+	padding: 16px;
+	max-width: 600px;
+}
+
+#imgforge-progress-bar {
+	width: 100%;
+	height: 20px;
+	appearance: none;
+}
+
+/* Use WordPress's own admin theme color for the progress fill,
+   so it matches whichever admin color scheme the user has chosen,
+   rather than a hardcoded brand color that might clash. */
+#imgforge-progress-bar::-webkit-progress-value {
+	background-color: var( --wp-admin-theme-color, #2271b1 );
+	border-radius: 3px;
+	transition: width 0.3s ease;
+}
+
+#imgforge-progress-bar::-moz-progress-bar {
+	background-color: var( --wp-admin-theme-color, #2271b1 );
+	border-radius: 3px;
+}
+
+#imgforge-progress-bar::-webkit-progress-bar {
+	background-color: #f0f0f1;
+	border-radius: 3px;
+}
+
+#imgforge-progress-text {
+	margin-top: 10px;
+	font-weight: 500;
+}
+
+#imgforge-start-bulk:disabled {
+	cursor: not-allowed;
+	opacity: 0.7;
+}

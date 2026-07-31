@@ -76,7 +76,10 @@ class Imgforge_Admin {
      * requests and risks CSS/JS conflicts with unrelated screens.
      */
     public function enqueue_assets( $hook ) {
-        if ( ! in_array( $hook, array( 'toplevel_page_' . self::SETTINGS_SLUG, 'image-forge_page_' . self::BULK_SLUG ), true ) ) {
+        if ( ! in_array( $hook, array(
+            'toplevel_page_' . self::SETTINGS_SLUG,
+            'image-forge-settings_page_' . self::BULK_SLUG,
+        ), true ) ) {
             return;
         }
 
@@ -86,6 +89,7 @@ class Imgforge_Admin {
         wp_localize_script( 'imgforge-admin', 'imgforgeAdmin', array(
             'ajaxUrl' => admin_url( 'admin-ajax.php' ),
             'nonce'   => wp_create_nonce( 'imgforge_bulk_nonce' ),
+            'startingLabel'=> __( 'Starting…', 'image-forge' ),
         ) );
     }
 
@@ -192,7 +196,7 @@ class Imgforge_Admin {
         $clean['quality']    = max( 1, min( 100, (int) ( $input['quality'] ?? 82 ) ) );
         $clean['max_width']  = max( 100, (int) ( $input['max_width'] ?? 2560 ) );
         $clean['max_height'] = max( 100, (int) ( $input['max_height'] ?? 2560 ) );
-        $clean['batch_size'] = max( 1, min( 50, (int) ( $input['batch_size'] ?? 5 ) ) ); // capped at 50 — see note below.
+        $clean['batch_size'] = max( 1, min( 500, (int) ( $input['batch_size'] ?? 20 ) ) ); // capped at 50 — see note below.
 
         // Carry forward settings not exposed on this form (e.g.
         // allowed_mime_types), so saving the form never wipes them
