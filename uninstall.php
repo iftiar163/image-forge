@@ -1,28 +1,8 @@
 <?php
-/**
- * Runs when the plugin is deleted from the Plugins screen.
- *
- * Removes the settings option and drops the custom queue table.
- * Multisite-aware: loops every site on the network so no subsite
- * is left with orphaned data.
- *
- * Note: .imgforge-bak backup files created when "Keep Original as
- * Backup" was enabled are intentionally NOT deleted here — scanning
- * an entire uploads directory tree on uninstall risks a timeout on
- * large media libraries. See readme.txt FAQ for manual cleanup steps.
- *
- * @package ImageForge
- */
-
 if ( ! defined( 'WP_UNINSTALL_PLUGIN' ) ) {
     exit;
 }
 
-/**
- * Per-site cleanup: delete the settings option and drop the queue
- * table for whichever site is currently "active" (via switch_to_blog
- * in the multisite loop below, or the main site on single-site installs).
- */
 function imgforge_uninstall_site() {
     global $wpdb;
 
@@ -30,8 +10,8 @@ function imgforge_uninstall_site() {
 
     $table_name = $wpdb->prefix . 'imgforge_queue';
 
-    // phpcs:ignore WordPress.DB.DirectDatabaseQuery.DirectQuery, WordPress.DB.DirectDatabaseQuery.SchemaChange
-    $wpdb->query( "DROP TABLE IF EXISTS {$table_name}" );
+    // phpcs:ignore WordPress.DB.DirectDatabaseQuery.DirectQuery, WordPress.DB.DirectDatabaseQuery.SchemaChange, WordPress.DB.DirectDatabaseQuery.NoCaching
+    $wpdb->query( 'DROP TABLE IF EXISTS ' . esc_sql( $table_name ) );
 }
 
 if ( is_multisite() ) {

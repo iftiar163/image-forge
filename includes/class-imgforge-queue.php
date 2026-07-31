@@ -1,14 +1,4 @@
 <?php
-/**
- * Queue — custom table + background batch processor.
- *
- * Two responsibilities: (1) manage rows in the imgforge_queue table,
- * (2) process a small batch per invocation, whether triggered by
- * wp_cron or by an admin-triggered AJAX call.
- *
- * @package ImageForge
- */
-
 if ( ! defined( 'ABSPATH' ) ) {
     exit;
 }
@@ -35,14 +25,6 @@ class Imgforge_Queue {
         }
     }
 
-    /**
-     * wp_cron only ships with hourly/twicedaily/daily out of the box.
-     * We need something much more frequent for near-real-time bulk
-     * processing, so we register a custom 5-minute interval.
-     *
-     * @param array $schedules
-     * @return array
-     */
     public function register_cron_interval( $schedules ) {
         $schedules['imgforge_five_minutes'] = array(
             'interval' => 5 * MINUTE_IN_SECONDS,
@@ -51,24 +33,25 @@ class Imgforge_Queue {
         return $schedules;
     }
 
-    /**
-     * Adds an attachment to the queue, ignoring duplicates.
-     *
-     * @param int $attachment_id
-     * @return bool
-     */
     public function enqueue( $attachment_id ) {
         global $wpdb;
-        $table = $this->table_name();
 
-        // phpcs:ignore WordPress.DB.DirectDatabaseQuery.DirectQuery
-        $exists = $wpdb->get_var( $wpdb->prepare(
-            "SELECT id FROM {$table} WHERE attachment_id = %d AND status IN ('pending','processing')",
-            $attachment_id
-        ) );
+        $table       = $this->table_name();
+        $attachment_id = absint( $attachment_id );
+        $cache_key   = 'imgforge_queue_exists_' . $attachment_id;
+
+        $exists = wp_cache_get( $cache_key, 'imgforge' );
+        if ( false === $exists ) {
+            // phpcs:ignore WordPress.DB.DirectDatabaseQuery.DirectQuery
+            $exists = $wpdb->get_var( $wpdb->prepare(
+                'SELECT id FROM ' . esc_sql( $table ) . " WHERE attachment_id = %d AND status IN ('pending','processing')",
+                $attachment_id
+            ) );
+            wp_cache_set( $cache_key, $exists, 'imgforge', 30 );
+        }
 
         if ( $exists ) {
-            return false; // Already queued, don't duplicate.
+            return false;
         }
 
         $now = current_time( 'mysql' );
@@ -85,16 +68,13 @@ class Imgforge_Queue {
             array( '%d', '%s', '%s', '%s' )
         );
 
+        if ( false !== $inserted ) {
+            wp_cache_delete( $cache_key, 'imgforge' );
+        }
+
         return false !== $inserted;
     }
 
-    /**
-     * Processes one batch of pending rows. Called by wp_cron on its
-     * schedule, AND callable directly from the Admin AJAX handler for
-     * responsive bulk-optimize UI (same method, two triggers).
-     *
-     * @return array Stats about this batch run, used by the AJAX response.
-     */
     public function process_batch() {
     global $wpdb;
     $table = $this->table_name();
@@ -103,12 +83,17 @@ class Imgforge_Queue {
     $start_time          = microtime( true );
 
     $max_rows_to_fetch = max( 1, (int) Imgforge_Settings::get( 'batch_size' ) );
+    $cache_key         = 'imgforge_pending_rows_' . $max_rows_to_fetch;
 
-    // phpcs:ignore WordPress.DB.DirectDatabaseQuery.DirectQuery
-    $rows = $wpdb->get_results( $wpdb->prepare(
-        "SELECT id, attachment_id FROM {$table} WHERE status = 'pending' ORDER BY id ASC LIMIT %d",
-        $max_rows_to_fetch
-    ) );
+    $rows = wp_cache_get( $cache_key, 'imgforge' );
+    if ( false === $rows ) {
+        // phpcs:ignore WordPress.DB.DirectDatabaseQuery.DirectQuery
+        $rows = $wpdb->get_results( $wpdb->prepare(
+            'SELECT id, attachment_id FROM ' . esc_sql( $table ) . " WHERE status = 'pending' ORDER BY id ASC LIMIT %d",
+            $max_rows_to_fetch
+        ) );
+        wp_cache_set( $cache_key, $rows, 'imgforge', 10 );
+    }
 
     $processed = 0;
     $failed    = 0;
@@ -139,19 +124,20 @@ class Imgforge_Queue {
     );
 }
 
-    /**
-     * Marks a row's attempt count and error, and re-queues it as
-     * pending unless it's already failed 3 times — permanent failures
-     * (corrupt files, unsupported formats) shouldn't retry forever.
-     */
     private function mark_failed( $row_id, $error_message ) {
         global $wpdb;
         $table = $this->table_name();
+        $row_id = absint( $row_id );
 
-        // phpcs:ignore WordPress.DB.DirectDatabaseQuery.DirectQuery
-        $attempts = (int) $wpdb->get_var( $wpdb->prepare(
-            "SELECT attempts FROM {$table} WHERE id = %d", $row_id
-        ) );
+        $attempts = wp_cache_get( 'imgforge_attempts_' . $row_id, 'imgforge' );
+        if ( false === $attempts ) {
+            // phpcs:ignore WordPress.DB.DirectDatabaseQuery.DirectQuery
+            $attempts = (int) $wpdb->get_var( $wpdb->prepare(
+                'SELECT attempts FROM ' . esc_sql( $table ) . ' WHERE id = %d',
+                $row_id
+            ) );
+            wp_cache_set( 'imgforge_attempts_' . $row_id, $attempts, 'imgforge', 30 );
+        }
 
         $new_status = ( $attempts + 1 >= 3 ) ? 'error' : 'pending';
 
@@ -168,10 +154,14 @@ class Imgforge_Queue {
             array( '%s', '%d', '%s', '%s' ),
             array( '%d' )
         );
+
+        wp_cache_delete( 'imgforge_pending_count', 'imgforge' );
+        wp_cache_delete( 'imgforge_attempts_' . $row_id, 'imgforge' );
     }
 
     private function mark_status( $row_id, $status ) {
         global $wpdb;
+        $row_id = absint( $row_id );
 
         // phpcs:ignore WordPress.DB.DirectDatabaseQuery.DirectQuery
         $wpdb->update(
@@ -181,13 +171,10 @@ class Imgforge_Queue {
             array( '%s', '%s' ),
             array( '%d' )
         );
+
+        wp_cache_delete( 'imgforge_pending_count', 'imgforge' );
     }
 
-    /**
-     * How many images are still waiting — used by the admin progress bar.
-     *
-     * @return int
-     */
     public function count_pending() {
         global $wpdb;
 
@@ -197,7 +184,7 @@ class Imgforge_Queue {
         if ( false === $count ) {
             // phpcs:ignore WordPress.DB.DirectDatabaseQuery.DirectQuery
             $count = (int) $wpdb->get_var(
-                "SELECT COUNT(*) FROM {$this->table_name()} WHERE status = 'pending'"
+                'SELECT COUNT(*) FROM ' . esc_sql( $this->table_name() ) . " WHERE status = 'pending'"
             );
             wp_cache_set( $cache_key, $count, 'imgforge', 30 ); // short TTL, this changes fast during a batch run.
         }
@@ -205,12 +192,6 @@ class Imgforge_Queue {
         return $count;
     }
 
-    /**
-     * Bulk-enqueues every image-library attachment that hasn't been
-     * optimized yet. Called from the Admin "Bulk Optimize" button.
-     *
-     * @return int Number of images newly queued.
-     */
     public function enqueue_all_unoptimized() {
         $query = new WP_Query( array(
             'post_type'      => 'attachment',

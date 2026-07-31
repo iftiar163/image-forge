@@ -1,17 +1,29 @@
 <?php
-/**
- * Admin — settings page, bulk optimize screen, AJAX handlers.
- *
- * @package ImageForge
- */
-
 if ( ! defined( 'ABSPATH' ) ) {
     exit;
+}
+
+if ( ! defined( 'IMGFORGE_VERSION' ) ) {
+    define( 'IMGFORGE_VERSION', '1.0.0' );
+}
+
+if ( ! defined( 'IMGFORGE_PLUGIN_DIR' ) ) {
+    define( 'IMGFORGE_PLUGIN_DIR', plugin_dir_path( dirname( __DIR__ ) . '/image-forge.php' ) );
+}
+
+if ( ! defined( 'IMGFORGE_PLUGIN_URL' ) ) {
+    define( 'IMGFORGE_PLUGIN_URL', plugin_dir_url( dirname( __DIR__ ) . '/image-forge.php' ) );
+}
+
+if ( ! defined( 'IMGFORGE_OPTION_KEY' ) ) {
+    define( 'IMGFORGE_OPTION_KEY', 'imgforge_settings' );
 }
 
 class Imgforge_Admin {
 
     private static $instance = null;
+    private $settings_hook;
+    private $bulk_hook;
 
     const SETTINGS_SLUG = 'image-forge-settings';
     const BULK_SLUG      = 'image-forge-bulk-optimize';
@@ -35,33 +47,33 @@ class Imgforge_Admin {
     }
 
     public function add_menu() {
-        add_menu_page(
-            __( 'Image Forge', 'image-forge' ),
-            __( 'Image Forge', 'image-forge' ),
-            'manage_options',
-            self::SETTINGS_SLUG,
-            array( $this, 'render_settings_page' ),
-            'dashicons-images-alt2'
-        );
+    $this->settings_hook = add_menu_page(
+        __( 'Image Forge', 'image-forge' ),
+        __( 'Image Forge', 'image-forge' ),
+        'manage_options',
+        self::SETTINGS_SLUG,
+        array( $this, 'render_settings_page' ),
+        'dashicons-images-alt2'
+    );
 
-        add_submenu_page(
-            self::SETTINGS_SLUG,
-            __( 'Settings', 'image-forge' ),
-            __( 'Settings', 'image-forge' ),
-            'manage_options',
-            self::SETTINGS_SLUG,
-            array( $this, 'render_settings_page' )
-        );
+    add_submenu_page(
+        self::SETTINGS_SLUG,
+        __( 'Settings', 'image-forge' ),
+        __( 'Settings', 'image-forge' ),
+        'manage_options',
+        self::SETTINGS_SLUG,
+        array( $this, 'render_settings_page' )
+    );
 
-        add_submenu_page(
-            self::SETTINGS_SLUG,
-            __( 'Bulk Optimize', 'image-forge' ),
-            __( 'Bulk Optimize', 'image-forge' ),
-            'manage_options',
-            self::BULK_SLUG,
-            array( $this, 'render_bulk_page' )
-        );
-    }
+    $this->bulk_hook = add_submenu_page(
+        self::SETTINGS_SLUG,
+        __( 'Bulk Optimize', 'image-forge' ),
+        __( 'Bulk Optimize', 'image-forge' ),
+        'manage_options',
+        self::BULK_SLUG,
+        array( $this, 'render_bulk_page' )
+    );
+}
 
     public function add_settings_link( $links ) {
         $url  = admin_url( 'admin.php?page=' . self::SETTINGS_SLUG );
@@ -70,32 +82,19 @@ class Imgforge_Admin {
         return $links;
     }
 
-    /**
-     * Only load our CSS/JS on our own two admin pages — never load
-     * plugin-specific assets globally across wp-admin, which wastes
-     * requests and risks CSS/JS conflicts with unrelated screens.
-     */
     public function enqueue_assets( $hook ) {
-        if ( ! in_array( $hook, array(
-            'toplevel_page_' . self::SETTINGS_SLUG,
-            'image-forge-settings_page_' . self::BULK_SLUG,
-        ), true ) ) {
-            return;
-        }
-
-        wp_enqueue_style( 'imgforge-admin', IMGFORGE_PLUGIN_URL . 'admin/assets/css/admin.css', array(), IMGFORGE_VERSION );
-        wp_enqueue_script( 'imgforge-admin', IMGFORGE_PLUGIN_URL . 'admin/assets/js/admin.js', array( 'jquery' ), IMGFORGE_VERSION, true );
-
-        wp_localize_script( 'imgforge-admin', 'imgforgeAdmin', array(
-            'ajaxUrl' => admin_url( 'admin-ajax.php' ),
-            'nonce'   => wp_create_nonce( 'imgforge_bulk_nonce' ),
-            'startingLabel'=> __( 'Starting…', 'image-forge' ),
-        ) );
+    if ( ! in_array( $hook, array( $this->settings_hook, $this->bulk_hook ), true ) ) {
+        return;
     }
 
-    /* ---------------------------------------------------------------
-     * Settings API
-     * ------------------------------------------------------------- */
+    wp_enqueue_style( 'imgforge-admin', IMGFORGE_PLUGIN_URL . 'admin/assets/css/admin.css', array(), IMGFORGE_VERSION );
+    wp_enqueue_script( 'imgforge-admin', IMGFORGE_PLUGIN_URL . 'admin/assets/js/admin.js', array( 'jquery' ), IMGFORGE_VERSION, true );
+
+    wp_localize_script( 'imgforge-admin', 'imgforgeAdmin', array(
+        'ajaxUrl' => admin_url( 'admin-ajax.php' ),
+        'nonce'   => wp_create_nonce( 'imgforge_bulk_nonce' ),
+    ) );
+}
 
     public function register_settings() {
         register_setting( 'imgforge_settings_group', IMGFORGE_OPTION_KEY, array( $this, 'sanitize_settings' ) );
@@ -136,12 +135,13 @@ class Imgforge_Admin {
 
     public function field_number( $args ) {
         $key = $args['key'];
-        $val = (int) Imgforge_Settings::get( $key );
+        $val = absint( Imgforge_Settings::get( $key ) );
+
         printf(
-            '<input type="number" name="%1$s[%2$s]" value="%3$d" min="1" style="width:100px;">',
+            '<input type="number" name="%1$s[%2$s]" value="%3$s" min="1" style="width:100px;">',
             esc_attr( IMGFORGE_OPTION_KEY ),
             esc_attr( $key ),
-            $val
+            esc_attr( (string) $val )
         );
     }
 
@@ -166,19 +166,17 @@ class Imgforge_Admin {
     }
 
     public function field_quality_slider() {
-        $val = (int) Imgforge_Settings::get( 'quality' );
+        $val = absint( Imgforge_Settings::get( 'quality' ) );
+
         printf(
-            '<input type="range" min="1" max="100" name="%1$s[quality]" value="%2$d" oninput="this.nextElementSibling.innerText=this.value"> <output>%2$d</output>',
+            '<input type="range" min="1" max="100" name="%1$s[quality]" value="%2$s" oninput="this.nextElementSibling.innerText=this.value"> <output>%3$s</output>',
             esc_attr( IMGFORGE_OPTION_KEY ),
-            $val
+            esc_attr( (string) $val ),
+            esc_html( (string) $val )
         );
         echo '<p class="description">' . esc_html__( '82 is a good balance of size vs. quality for most sites.', 'image-forge' ) . '</p>';
     }
 
-    /**
-     * Whitelists and type-casts every submitted value. Nothing from
-     * $_POST is ever trusted or written to the option unvalidated.
-     */
     public function sanitize_settings( $input ) {
         $clean = array();
 
@@ -196,11 +194,7 @@ class Imgforge_Admin {
         $clean['quality']    = max( 1, min( 100, (int) ( $input['quality'] ?? 82 ) ) );
         $clean['max_width']  = max( 100, (int) ( $input['max_width'] ?? 2560 ) );
         $clean['max_height'] = max( 100, (int) ( $input['max_height'] ?? 2560 ) );
-        $clean['batch_size'] = max( 1, min( 500, (int) ( $input['batch_size'] ?? 20 ) ) ); // capped at 50 — see note below.
-
-        // Carry forward settings not exposed on this form (e.g.
-        // allowed_mime_types), so saving the form never wipes them
-        // back to hardcoded defaults.
+        $clean['batch_size'] = max( 1, min( 500, (int) ( $input['batch_size'] ?? 20 ) ) );
         $existing = Imgforge_Settings::get_all();
         $clean    = wp_parse_args( $clean, $existing );
 
@@ -226,10 +220,6 @@ class Imgforge_Admin {
         </div>
         <?php
     }
-
-    /* ---------------------------------------------------------------
-     * Bulk Optimize page + AJAX
-     * ------------------------------------------------------------- */
 
     public function render_bulk_page() {
         if ( ! current_user_can( 'manage_options' ) ) {

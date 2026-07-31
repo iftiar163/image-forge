@@ -1,7 +1,7 @@
 <?php
 /**
  * Plugin Name:       Image Forge
- * Plugin URI:        https://example.com/image-forge
+ * Plugin URI:        https://iftiarhossain.com/plugins/image-forge
  * Description:       Automatically optimizes, compresses, and converts images to WebP on upload, with background bulk processing for your existing media library.
  * Version:           1.0.0
  * Requires at least: 6.3
@@ -12,8 +12,6 @@
  * License URI:       https://www.gnu.org/licenses/gpl-2.0.html
  * Text Domain:       image-forge
  * Domain Path:       /languages
- *
- * @package ImageForge
  */
 
 defined('ABSPATH') || exit;
@@ -40,7 +38,7 @@ function imgforge_activate( $network_wide ) {
     $default = [
         'enabled'            => true,
         'auto_optimize'      => true,
-        'output_format'      => 'webp', // webp | png | original
+        'output_format'      => 'webp',
         'quality'            => 82,
         'keep_original'      => true,
         'max_width'          => 2560,
