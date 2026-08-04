@@ -3,11 +3,11 @@ if ( ! defined( 'ABSPATH' ) ) {
     exit;
 }
 
-class Imgforge_Queue {
+class Mopw_Queue {
 
     private static $instance = null;
 
-    const CRON_HOOK = 'imgforge_process_queue';
+    const CRON_HOOK = 'mopw_process_queue';
 
     public static function get_instance() {
         if ( null === self::$instance ) {
@@ -21,14 +21,14 @@ class Imgforge_Queue {
         add_filter( 'cron_schedules', array( $this, 'register_cron_interval' ) );
 
         if ( ! wp_next_scheduled( self::CRON_HOOK ) ) {
-            wp_schedule_event( time(), 'imgforge_five_minutes', self::CRON_HOOK );
+            wp_schedule_event( time(), 'mopw_five_minutes', self::CRON_HOOK );
         }
     }
 
     public function register_cron_interval( $schedules ) {
-        $schedules['imgforge_five_minutes'] = array(
+        $schedules['mopw_five_minutes'] = array(
             'interval' => 5 * MINUTE_IN_SECONDS,
-            'display'  => __( 'Every 5 Minutes (Image Forge)', 'image-forge' ),
+            'display'  => __( 'Every 5 Minutes (Media Optimizer by Webxperthub)', 'media-optimizer-by-webxperthub' ),
         );
         return $schedules;
     }
@@ -38,16 +38,16 @@ class Imgforge_Queue {
 
         $table       = $this->table_name();
         $attachment_id = absint( $attachment_id );
-        $cache_key   = 'imgforge_queue_exists_' . $attachment_id;
+        $cache_key   = 'mopw_queue_exists_' . $attachment_id;
 
-        $exists = wp_cache_get( $cache_key, 'imgforge' );
+        $exists = wp_cache_get( $cache_key, 'mopw' );
         if ( false === $exists ) {
             // phpcs:ignore WordPress.DB.DirectDatabaseQuery.DirectQuery
             $exists = $wpdb->get_var( $wpdb->prepare(
                 'SELECT id FROM ' . esc_sql( $table ) . " WHERE attachment_id = %d AND status IN ('pending','processing')",
                 $attachment_id
             ) );
-            wp_cache_set( $cache_key, $exists, 'imgforge', 30 );
+            wp_cache_set( $cache_key, $exists, 'mopw', 30 );
         }
 
         if ( $exists ) {
@@ -69,7 +69,7 @@ class Imgforge_Queue {
         );
 
         if ( false !== $inserted ) {
-            wp_cache_delete( $cache_key, 'imgforge' );
+            wp_cache_delete( $cache_key, 'mopw' );
         }
 
         return false !== $inserted;
@@ -79,20 +79,20 @@ class Imgforge_Queue {
     global $wpdb;
     $table = $this->table_name();
 
-    $time_budget_seconds = (float) apply_filters( 'imgforge_batch_time_budget', 20 );
+    $time_budget_seconds = (float) apply_filters( 'mopw_batch_time_budget', 20 );
     $start_time          = microtime( true );
 
-    $max_rows_to_fetch = max( 1, (int) Imgforge_Settings::get( 'batch_size' ) );
-    $cache_key         = 'imgforge_pending_rows_' . $max_rows_to_fetch;
+    $max_rows_to_fetch = max( 1, (int) Mopw_Settings::get( 'batch_size' ) );
+    $cache_key         = 'mopw_pending_rows_' . $max_rows_to_fetch;
 
-    $rows = wp_cache_get( $cache_key, 'imgforge' );
+    $rows = wp_cache_get( $cache_key, 'mopw' );
     if ( false === $rows ) {
         // phpcs:ignore WordPress.DB.DirectDatabaseQuery.DirectQuery
         $rows = $wpdb->get_results( $wpdb->prepare(
             'SELECT id, attachment_id FROM ' . esc_sql( $table ) . " WHERE status = 'pending' ORDER BY id ASC LIMIT %d",
             $max_rows_to_fetch
         ) );
-        wp_cache_set( $cache_key, $rows, 'imgforge', 10 );
+        wp_cache_set( $cache_key, $rows, 'mopw', 10 );
     }
 
     $processed = 0;
@@ -106,7 +106,7 @@ class Imgforge_Queue {
 
         $this->mark_status( $row->id, 'processing' );
 
-        $result = Imgforge_Optimizer::process( (int) $row->attachment_id );
+        $result = Mopw_Optimizer::process( (int) $row->attachment_id );
 
         if ( $result['success'] ) {
             $this->mark_status( $row->id, 'done' );
@@ -129,14 +129,14 @@ class Imgforge_Queue {
         $table = $this->table_name();
         $row_id = absint( $row_id );
 
-        $attempts = wp_cache_get( 'imgforge_attempts_' . $row_id, 'imgforge' );
+        $attempts = wp_cache_get( 'mopw_attempts_' . $row_id, 'mopw' );
         if ( false === $attempts ) {
             // phpcs:ignore WordPress.DB.DirectDatabaseQuery.DirectQuery
             $attempts = (int) $wpdb->get_var( $wpdb->prepare(
                 'SELECT attempts FROM ' . esc_sql( $table ) . ' WHERE id = %d',
                 $row_id
             ) );
-            wp_cache_set( 'imgforge_attempts_' . $row_id, $attempts, 'imgforge', 30 );
+            wp_cache_set( 'mopw_attempts_' . $row_id, $attempts, 'mopw', 30 );
         }
 
         $new_status = ( $attempts + 1 >= 3 ) ? 'error' : 'pending';
@@ -155,8 +155,8 @@ class Imgforge_Queue {
             array( '%d' )
         );
 
-        wp_cache_delete( 'imgforge_pending_count', 'imgforge' );
-        wp_cache_delete( 'imgforge_attempts_' . $row_id, 'imgforge' );
+        wp_cache_delete( 'mopw_pending_count', 'mopw' );
+        wp_cache_delete( 'mopw_attempts_' . $row_id, 'mopw' );
     }
 
     private function mark_status( $row_id, $status ) {
@@ -172,21 +172,21 @@ class Imgforge_Queue {
             array( '%d' )
         );
 
-        wp_cache_delete( 'imgforge_pending_count', 'imgforge' );
+        wp_cache_delete( 'mopw_pending_count', 'mopw' );
     }
 
     public function count_pending() {
         global $wpdb;
 
-        $cache_key = 'imgforge_pending_count';
-        $count     = wp_cache_get( $cache_key, 'imgforge' );
+        $cache_key = 'mopw_pending_count';
+        $count     = wp_cache_get( $cache_key, 'mopw' );
 
         if ( false === $count ) {
             // phpcs:ignore WordPress.DB.DirectDatabaseQuery.DirectQuery
             $count = (int) $wpdb->get_var(
                 'SELECT COUNT(*) FROM ' . esc_sql( $this->table_name() ) . " WHERE status = 'pending'"
             );
-            wp_cache_set( $cache_key, $count, 'imgforge', 30 ); // short TTL, this changes fast during a batch run.
+            wp_cache_set( $cache_key, $count, 'mopw', 30 ); // short TTL, this changes fast during a batch run.
         }
 
         return $count;
@@ -196,13 +196,13 @@ class Imgforge_Queue {
         $query = new WP_Query( array(
             'post_type'      => 'attachment',
             'post_status'    => 'inherit',
-            'post_mime_type' => (array) Imgforge_Settings::get( 'allowed_mime_types' ),
+            'post_mime_type' => (array) Mopw_Settings::get( 'allowed_mime_types' ),
             'posts_per_page' => -1,
             'fields'         => 'ids',
             'no_found_rows'  => true,
             'meta_query'     => array(
                 array(
-                    'key'     => '_imgforge_optimized',
+                    'key'     => '_mopw_optimized',
                     'compare' => 'NOT EXISTS',
                 ),
             ),
@@ -220,6 +220,6 @@ class Imgforge_Queue {
 
     private function table_name() {
         global $wpdb;
-        return $wpdb->prefix . IMGFORGE_QUEUE_TABLE;
+        return $wpdb->prefix . MOPW_QUEUE_TABLE;
     }
 }

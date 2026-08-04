@@ -3,41 +3,41 @@ if ( ! defined( 'ABSPATH' ) ) {
     exit;
 }
 
-class Imgforge_Optimizer {
+class Mopw_Optimizer {
 
     public static function process( $attachment_id ) {
 
-        if ( ! Imgforge_Settings::is_enabled() ) {
-            return array( 'success' => false, 'error' => __( 'Plugin is disabled.', 'image-forge' ) );
+        if ( ! Mopw_Settings::is_enabled() ) {
+            return array( 'success' => false, 'error' => __( 'Plugin is disabled.', 'media-optimizer-by-webxperthub' ) );
         }
 
-        if ( ! Imgforge_Media_Handler::is_supported_image( $attachment_id ) ) {
-            return array( 'success' => false, 'error' => __( 'Unsupported mime type.', 'image-forge' ) );
+        if ( ! Mopw_Media_Handler::is_supported_image( $attachment_id ) ) {
+            return array( 'success' => false, 'error' => __( 'Unsupported mime type.', 'media-optimizer-by-webxperthub' ) );
         }
 
-        $skip = apply_filters( 'imgforge_skip_optimization', false, $attachment_id );
+        $skip = apply_filters( 'mopw_skip_optimization', false, $attachment_id );
         if ( $skip ) {
-            return array( 'success' => false, 'error' => __( 'Skipped via filter.', 'image-forge' ) );
+            return array( 'success' => false, 'error' => __( 'Skipped via filter.', 'media-optimizer-by-webxperthub' ) );
         }
 
-        if ( '1' === get_post_meta( $attachment_id, '_imgforge_optimized', true ) ) {
-            return array( 'success' => false, 'error' => __( 'Already optimized.', 'image-forge' ) );
+        if ( '1' === get_post_meta( $attachment_id, '_mopw_optimized', true ) ) {
+            return array( 'success' => false, 'error' => __( 'Already optimized.', 'media-optimizer-by-webxperthub' ) );
         }
 
-        $source_path = Imgforge_Media_Handler::get_file_path( $attachment_id );
+        $source_path = Mopw_Media_Handler::get_file_path( $attachment_id );
 
         if ( ! $source_path ) {
-            return array( 'success' => false, 'error' => __( 'Source file not found.', 'image-forge' ) );
+            return array( 'success' => false, 'error' => __( 'Source file not found.', 'media-optimizer-by-webxperthub' ) );
         }
 
-        $original_size = Imgforge_Media_Handler::get_file_size( $source_path );
+        $original_size = Mopw_Media_Handler::get_file_size( $source_path );
 
-        $args = apply_filters( 'imgforge_before_optimize_args', array(
-            'format'  => Imgforge_Settings::get( 'output_format' ),
-            'quality' => Imgforge_Settings::get( 'quality' ),
+        $args = apply_filters( 'mopw_before_optimize_args', array(
+            'format'  => Mopw_Settings::get( 'output_format' ),
+            'quality' => Mopw_Settings::get( 'quality' ),
         ), $attachment_id );
 
-        if ( Imgforge_Settings::get( 'resize_large_images' ) ) {
+        if ( Mopw_Settings::get( 'resize_large_images' ) ) {
             $resize_result = self::maybe_resize( $source_path );
             if ( ! $resize_result['success'] ) {
                 return $resize_result;
@@ -53,12 +53,12 @@ class Imgforge_Optimizer {
     }
 
     private static function maybe_resize( $source_path ) {
-        $max_w = (int) Imgforge_Settings::get( 'max_width' );
-        $max_h = (int) Imgforge_Settings::get( 'max_height' );
+        $max_w = (int) Mopw_Settings::get( 'max_width' );
+        $max_h = (int) Mopw_Settings::get( 'max_height' );
 
         $dimensions = @getimagesize( $source_path );
         if ( ! $dimensions ) {
-            return array( 'success' => false, 'error' => __( 'Could not read dimensions for resize.', 'image-forge' ) );
+            return array( 'success' => false, 'error' => __( 'Could not read dimensions for resize.', 'media-optimizer-by-webxperthub' ) );
         }
 
         list( $width, $height ) = $dimensions;
@@ -85,11 +85,11 @@ class Imgforge_Optimizer {
 
     private static function compress_in_place( $attachment_id, $source_path, $quality, $original_size ) {
 
-    $result = Imgforge_Converter::convert(
+    $result = Mopw_Converter::convert(
         $source_path,
         pathinfo( $source_path, PATHINFO_EXTENSION ),
         $quality,
-        ! Imgforge_Settings::get( 'preserve_exif' )
+        ! Mopw_Settings::get( 'preserve_exif' )
     );
 
     if ( ! $result['success'] ) {
@@ -105,14 +105,14 @@ class Imgforge_Optimizer {
 
     private static function convert_and_replace( $attachment_id, $source_path, $format, $quality, $original_size ) {
 
-        if ( Imgforge_Settings::get( 'keep_original' ) ) {
-            $backup_path = $source_path . '.imgforge-bak';
+        if ( Mopw_Settings::get( 'keep_original' ) ) {
+            $backup_path = $source_path . '.mopw-bak';
             if ( ! @copy( $source_path, $backup_path ) ) {
-                return array( 'success' => false, 'error' => __( 'Could not create backup copy.', 'image-forge' ) );
+                return array( 'success' => false, 'error' => __( 'Could not create backup copy.', 'media-optimizer-by-webxperthub' ) );
             }
         }
 
-        $result = Imgforge_Converter::convert( $source_path, $format, $quality, ! Imgforge_Settings::get( 'preserve_exif' ) );
+        $result = Mopw_Converter::convert( $source_path, $format, $quality, ! Mopw_Settings::get( 'preserve_exif' ) );
 
         if ( ! $result['success'] ) {
             return $result;
@@ -139,13 +139,13 @@ class Imgforge_Optimizer {
     }
 
     private static function finalize( $attachment_id, $final_path, $original_size ) {
-        $new_size = Imgforge_Media_Handler::get_file_size( $final_path );
+        $new_size = Mopw_Media_Handler::get_file_size( $final_path );
 
-        update_post_meta( $attachment_id, '_imgforge_optimized', '1' );
-        update_post_meta( $attachment_id, '_imgforge_original_size', $original_size );
-        update_post_meta( $attachment_id, '_imgforge_new_size', $new_size );
+        update_post_meta( $attachment_id, '_mopw_optimized', '1' );
+        update_post_meta( $attachment_id, '_mopw_original_size', $original_size );
+        update_post_meta( $attachment_id, '_mopw_new_size', $new_size );
 
-        do_action( 'imgforge_after_optimize', $attachment_id, $original_size, $new_size );
+        do_action( 'mopw_after_optimize', $attachment_id, $original_size, $new_size );
 
         return array( 'success' => true );
     }

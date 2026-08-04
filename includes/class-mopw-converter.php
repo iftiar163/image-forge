@@ -4,14 +4,14 @@
  *
  * Works purely with file paths, not attachment IDs. No hooks registered.
  *
- * @package ImageForge
+ * @package MediaOptimizerByWebxperthub
  */
 
 if ( ! defined( 'ABSPATH' ) ) {
     exit;
 }
 
-class Imgforge_Converter {
+class Mopw_Converter {
 
     /**
      * Converts a source image file to the target format.
@@ -28,18 +28,18 @@ class Imgforge_Converter {
      */
     public static function convert( $source_path, $target_format, $quality, $strip_exif = true ) {
 
-        if ( ! Imgforge_Media_Handler::is_path_safe( $source_path ) ) {
+        if ( ! Mopw_Media_Handler::is_path_safe( $source_path ) ) {
             return array(
                 'success' => false,
-                'error'   => __( 'Source path failed safety check.', 'image-forge' ),
+                'error'   => __( 'Source path failed safety check.', 'media-optimizer-by-webxperthub' ),
             );
         }
 
         $target_format = in_array( $target_format, array( 'webp', 'png' ), true ) ? $target_format : 'webp';
         $quality       = max( 1, min( 100, (int) $quality ) );
-        $dest_path     = Imgforge_Media_Handler::build_converted_path( $source_path, $target_format );
+        $dest_path     = Mopw_Media_Handler::build_converted_path( $source_path, $target_format );
 
-        $engine = Imgforge_Media_Handler::get_image_engine();
+        $engine = Mopw_Media_Handler::get_image_engine();
 
         if ( 'imagick' === $engine ) {
             return self::convert_with_imagick( $source_path, $dest_path, $target_format, $quality, $strip_exif );
@@ -51,7 +51,7 @@ class Imgforge_Converter {
 
         return array(
             'success' => false,
-            'error'   => __( 'No supported image processing library found on this server.', 'image-forge' ),
+            'error'   => __( 'No supported image processing library found on this server.', 'media-optimizer-by-webxperthub' ),
         );
     }
 
@@ -87,7 +87,7 @@ class Imgforge_Converter {
         if ( ! $result ) {
             return array(
                 'success' => false,
-                'error'   => __( 'Imagick failed to write the converted image.', 'image-forge' ),
+                'error'   => __( 'Imagick failed to write the converted image.', 'media-optimizer-by-webxperthub' ),
             );
         }
 
@@ -97,7 +97,7 @@ class Imgforge_Converter {
         return array(
             'success' => false,
             // translators: %s is the underlying library error message.
-            'error'   => sprintf( __( 'Imagick error: %s', 'image-forge' ), $e->getMessage() ),
+            'error'   => sprintf( __( 'Imagick error: %s', 'media-optimizer-by-webxperthub' ), $e->getMessage() ),
         );
     }
 }
@@ -112,7 +112,7 @@ class Imgforge_Converter {
         if ( false === $image_info ) {
             return array(
                 'success' => false,
-                'error'   => __( 'Could not read image dimensions.', 'image-forge' ),
+                'error'   => __( 'Could not read image dimensions.', 'media-optimizer-by-webxperthub' ),
             );
         }
 
@@ -123,7 +123,7 @@ class Imgforge_Converter {
         if ( ! $source_image ) {
             return array(
                 'success' => false,
-                'error'   => __( 'Unsupported source format for GD.', 'image-forge' ),
+                'error'   => __( 'Unsupported source format for GD.', 'media-optimizer-by-webxperthub' ),
             );
         }
 
@@ -155,7 +155,7 @@ class Imgforge_Converter {
         if ( ! $success ) {
             return array(
                 'success' => false,
-                'error'   => __( 'GD failed to write the converted image.', 'image-forge' ),
+                'error'   => __( 'GD failed to write the converted image.', 'media-optimizer-by-webxperthub' ),
             );
         }
 

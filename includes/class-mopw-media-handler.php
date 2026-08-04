@@ -5,14 +5,14 @@
  * Pure, stateless helpers used by the Optimizer and Converter classes.
  * No hooks are registered here — this class does nothing on its own.
  *
- * @package ImageForge
+ * @package MediaOptimizerByWebxperthub
  */
 
 if ( ! defined( 'ABSPATH' ) ) {
     exit;
 }
 
-class Imgforge_Media_Handler {
+class Mopw_Media_Handler {
 
     /**
      * Returns the absolute file path for an attachment, or false if
@@ -76,7 +76,7 @@ class Imgforge_Media_Handler {
             return false;
         }
 
-        $allowed = (array) Imgforge_Settings::get( 'allowed_mime_types' );
+        $allowed = (array) Mopw_Settings::get( 'allowed_mime_types' );
 
         return in_array( $mime, $allowed, true );
     }

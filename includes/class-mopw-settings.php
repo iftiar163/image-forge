@@ -2,14 +2,14 @@
 /**
  * Settings helper — single source of truth for all plugin options.
  *
- * @package ImageForge
+ * @package MediaOptimizerByWebxperthub
  */
 
 if ( ! defined( 'ABSPATH' ) ) {
     exit;
 }
 
-class Imgforge_Settings {
+class Mopw_Settings {
 
     /**
      * Request-level cache so we only merge defaults once per request,
@@ -80,7 +80,7 @@ class Imgforge_Settings {
             return;
         }
 
-        $saved       = get_option( IMGFORGE_OPTION_KEY, array() );
+        $saved       = get_option( MOPW_OPTION_KEY, array() );
         self::$cache = wp_parse_args( $saved, self::$defaults );
     }
 

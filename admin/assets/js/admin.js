@@ -1,5 +1,5 @@
 /**
- * Image Forge — Bulk Optimize admin UI.
+ * Media Optimizer by Webxperthub — Bulk Optimize admin UI.
  *
  * Wires the "Start Bulk Optimize" button to the queue AJAX endpoints
  * and drives the progress bar from real server-reported numbers only.
@@ -8,10 +8,10 @@
 	'use strict';
 
 	$( function () {
-		var $startButton    = $( '#imgforge-start-bulk' );
-		var $progressWrap   = $( '#imgforge-progress-wrap' );
-		var $progressBar    = $( '#imgforge-progress-bar' );
-		var $progressText   = $( '#imgforge-progress-text' );
+		var $startButton    = $( '#mopw-start-bulk' );
+		var $progressWrap   = $( '#mopw-progress-wrap' );
+		var $progressBar    = $( '#mopw-progress-bar' );
+		var $progressText   = $( '#mopw-progress-text' );
 
 		// Only run on the Bulk Optimize screen — this script is
 		// enqueued on both admin pages, but the button only exists here.
@@ -24,11 +24,11 @@
 		var totalQueuedAtStart  = 0;
 
 		$startButton.on( 'click', function () {
-			$startButton.prop( 'disabled', true ).text( imgforgeAdmin.startingLabel || 'Starting…' );
+			$startButton.prop( 'disabled', true ).text( mopwAdmin.startingLabel || 'Starting…' );
 
-			$.post( imgforgeAdmin.ajaxUrl, {
-				action: 'imgforge_start_bulk',
-				nonce:  imgforgeAdmin.nonce
+			$.post( mopwAdmin.ajaxUrl, {
+				action: 'mopw_start_bulk',
+				nonce:  mopwAdmin.nonce
 			} ).done( function ( response ) {
 
 				if ( ! response.success ) {
@@ -64,9 +64,9 @@
 
 			isRequestInFlight = true;
 
-			$.post( imgforgeAdmin.ajaxUrl, {
-				action: 'imgforge_run_batch',
-				nonce:  imgforgeAdmin.nonce
+			$.post( mopwAdmin.ajaxUrl, {
+				action: 'mopw_run_batch',
+				nonce:  mopwAdmin.nonce
 			} ).done( function ( response ) {
 
 				if ( ! response.success ) {
