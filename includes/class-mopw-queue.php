@@ -28,7 +28,7 @@ class Mopw_Queue {
     public function register_cron_interval( $schedules ) {
         $schedules['mopw_five_minutes'] = array(
             'interval' => 5 * MINUTE_IN_SECONDS,
-            'display'  => __( 'Every 5 Minutes (Media Optimizer by Webxperthub)', 'media-optimizer-by-webxperthub' ),
+            'display'  => __( 'Every 5 Minutes (Webxperthub Media Optimizer)', 'webxperthub-media-optimizer' ),
         );
         return $schedules;
     }
@@ -76,53 +76,53 @@ class Mopw_Queue {
     }
 
     public function process_batch() {
-    global $wpdb;
-    $table = $this->table_name();
+        global $wpdb;
+        $table = $this->table_name();
 
-    $time_budget_seconds = (float) apply_filters( 'mopw_batch_time_budget', 20 );
-    $start_time          = microtime( true );
+        $time_budget_seconds = (float) apply_filters( 'mopw_batch_time_budget', 20 );
+        $start_time          = microtime( true );
 
-    $max_rows_to_fetch = max( 1, (int) Mopw_Settings::get( 'batch_size' ) );
-    $cache_key         = 'mopw_pending_rows_' . $max_rows_to_fetch;
+        $max_rows_to_fetch = max( 1, (int) Mopw_Settings::get( 'batch_size' ) );
+        $cache_key         = 'mopw_pending_rows_' . $max_rows_to_fetch;
 
-    $rows = wp_cache_get( $cache_key, 'mopw' );
-    if ( false === $rows ) {
-        // phpcs:ignore WordPress.DB.DirectDatabaseQuery.DirectQuery
-        $rows = $wpdb->get_results( $wpdb->prepare(
-            'SELECT id, attachment_id FROM ' . esc_sql( $table ) . " WHERE status = 'pending' ORDER BY id ASC LIMIT %d",
-            $max_rows_to_fetch
-        ) );
-        wp_cache_set( $cache_key, $rows, 'mopw', 10 );
-    }
-
-    $processed = 0;
-    $failed    = 0;
-
-    foreach ( $rows as $row ) {
-
-        if ( ( microtime( true ) - $start_time ) >= $time_budget_seconds ) {
-            break;
+        $rows = wp_cache_get( $cache_key, 'mopw' );
+        if ( false === $rows ) {
+            // phpcs:ignore WordPress.DB.DirectDatabaseQuery.DirectQuery
+            $rows = $wpdb->get_results( $wpdb->prepare(
+                'SELECT id, attachment_id FROM ' . esc_sql( $table ) . " WHERE status = 'pending' ORDER BY id ASC LIMIT %d",
+                $max_rows_to_fetch
+            ) );
+            wp_cache_set( $cache_key, $rows, 'mopw', 10 );
         }
 
-        $this->mark_status( $row->id, 'processing' );
+        $processed = 0;
+        $failed    = 0;
 
-        $result = Mopw_Optimizer::process( (int) $row->attachment_id );
+        foreach ( $rows as $row ) {
 
-        if ( $result['success'] ) {
-            $this->mark_status( $row->id, 'done' );
-            $processed++;
-        } else {
-            $this->mark_failed( $row->id, $result['error'] );
-            $failed++;
+            if ( ( microtime( true ) - $start_time ) >= $time_budget_seconds ) {
+                break;
+            }
+
+            $this->mark_status( $row->id, 'processing' );
+
+            $result = Mopw_Optimizer::process( (int) $row->attachment_id );
+
+            if ( $result['success'] ) {
+                $this->mark_status( $row->id, 'done' );
+                $processed++;
+            } else {
+                $this->mark_failed( $row->id, $result['error'] );
+                $failed++;
+            }
         }
-    }
 
-    return array(
-        'processed' => $processed,
-        'failed'    => $failed,
-        'remaining' => $this->count_pending(),
-    );
-}
+        return array(
+            'processed' => $processed,
+            'failed'    => $failed,
+            'remaining' => $this->count_pending(),
+        );
+    }
 
     private function mark_failed( $row_id, $error_message ) {
         global $wpdb;
@@ -186,7 +186,7 @@ class Mopw_Queue {
             $count = (int) $wpdb->get_var(
                 'SELECT COUNT(*) FROM ' . esc_sql( $this->table_name() ) . " WHERE status = 'pending'"
             );
-            wp_cache_set( $cache_key, $count, 'mopw', 30 ); // short TTL, this changes fast during a batch run.
+            wp_cache_set( $cache_key, $count, 'mopw', 30 );
         }
 
         return $count;

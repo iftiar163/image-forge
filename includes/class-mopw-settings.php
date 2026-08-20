@@ -2,7 +2,7 @@
 /**
  * Settings helper — single source of truth for all plugin options.
  *
- * @package MediaOptimizerByWebxperthub
+ * @package WebxperthubMediaOptimizer
  */
 
 if ( ! defined( 'ABSPATH' ) ) {

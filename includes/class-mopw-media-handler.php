@@ -5,7 +5,7 @@
  * Pure, stateless helpers used by the Optimizer and Converter classes.
  * No hooks are registered here — this class does nothing on its own.
  *
- * @package MediaOptimizerByWebxperthub
+ * @package WebxperthubMediaOptimizer
  */
 
 if ( ! defined( 'ABSPATH' ) ) {

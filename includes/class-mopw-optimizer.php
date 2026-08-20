@@ -8,26 +8,26 @@ class Mopw_Optimizer {
     public static function process( $attachment_id ) {
 
         if ( ! Mopw_Settings::is_enabled() ) {
-            return array( 'success' => false, 'error' => __( 'Plugin is disabled.', 'media-optimizer-by-webxperthub' ) );
+            return array( 'success' => false, 'error' => __( 'Plugin is disabled.', 'webxperthub-media-optimizer' ) );
         }
 
         if ( ! Mopw_Media_Handler::is_supported_image( $attachment_id ) ) {
-            return array( 'success' => false, 'error' => __( 'Unsupported mime type.', 'media-optimizer-by-webxperthub' ) );
+            return array( 'success' => false, 'error' => __( 'Unsupported mime type.', 'webxperthub-media-optimizer' ) );
         }
 
         $skip = apply_filters( 'mopw_skip_optimization', false, $attachment_id );
         if ( $skip ) {
-            return array( 'success' => false, 'error' => __( 'Skipped via filter.', 'media-optimizer-by-webxperthub' ) );
+            return array( 'success' => false, 'error' => __( 'Skipped via filter.', 'webxperthub-media-optimizer' ) );
         }
 
         if ( '1' === get_post_meta( $attachment_id, '_mopw_optimized', true ) ) {
-            return array( 'success' => false, 'error' => __( 'Already optimized.', 'media-optimizer-by-webxperthub' ) );
+            return array( 'success' => false, 'error' => __( 'Already optimized.', 'webxperthub-media-optimizer' ) );
         }
 
         $source_path = Mopw_Media_Handler::get_file_path( $attachment_id );
 
         if ( ! $source_path ) {
-            return array( 'success' => false, 'error' => __( 'Source file not found.', 'media-optimizer-by-webxperthub' ) );
+            return array( 'success' => false, 'error' => __( 'Source file not found.', 'webxperthub-media-optimizer' ) );
         }
 
         $original_size = Mopw_Media_Handler::get_file_size( $source_path );
@@ -58,7 +58,7 @@ class Mopw_Optimizer {
 
         $dimensions = @getimagesize( $source_path );
         if ( ! $dimensions ) {
-            return array( 'success' => false, 'error' => __( 'Could not read dimensions for resize.', 'media-optimizer-by-webxperthub' ) );
+            return array( 'success' => false, 'error' => __( 'Could not read dimensions for resize.', 'webxperthub-media-optimizer' ) );
         }
 
         list( $width, $height ) = $dimensions;
@@ -85,30 +85,30 @@ class Mopw_Optimizer {
 
     private static function compress_in_place( $attachment_id, $source_path, $quality, $original_size ) {
 
-    $result = Mopw_Converter::convert(
-        $source_path,
-        pathinfo( $source_path, PATHINFO_EXTENSION ),
-        $quality,
-        ! Mopw_Settings::get( 'preserve_exif' )
-    );
+        $result = Mopw_Converter::convert(
+            $source_path,
+            pathinfo( $source_path, PATHINFO_EXTENSION ),
+            $quality,
+            ! Mopw_Settings::get( 'preserve_exif' )
+        );
 
-    if ( ! $result['success'] ) {
-        return $result;
+        if ( ! $result['success'] ) {
+            return $result;
+        }
+
+        require_once ABSPATH . 'wp-admin/includes/image.php';
+        $metadata = wp_generate_attachment_metadata( $attachment_id, $source_path );
+        wp_update_attachment_metadata( $attachment_id, $metadata );
+
+        return self::finalize( $attachment_id, $source_path, $original_size );
     }
-
-    require_once ABSPATH . 'wp-admin/includes/image.php';
-    $metadata = wp_generate_attachment_metadata( $attachment_id, $source_path );
-    wp_update_attachment_metadata( $attachment_id, $metadata );
-
-    return self::finalize( $attachment_id, $source_path, $original_size );
-}
 
     private static function convert_and_replace( $attachment_id, $source_path, $format, $quality, $original_size ) {
 
         if ( Mopw_Settings::get( 'keep_original' ) ) {
             $backup_path = $source_path . '.mopw-bak';
             if ( ! @copy( $source_path, $backup_path ) ) {
-                return array( 'success' => false, 'error' => __( 'Could not create backup copy.', 'media-optimizer-by-webxperthub' ) );
+                return array( 'success' => false, 'error' => __( 'Could not create backup copy.', 'webxperthub-media-optimizer' ) );
             }
         }
 

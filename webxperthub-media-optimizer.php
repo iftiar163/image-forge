@@ -1,8 +1,8 @@
 <?php
 
 /**
- * Plugin Name:       Media Optimizer by Webxperthub
- * Plugin URI:        https://wordpress.org/plugins/media-optimizer-by-webxperthub
+ * Plugin Name:       Webxperthub Media Optimizer
+ * Plugin URI:        https://wordpress.org/plugins/webxperthub-media-optimizer
  * Description:       Automatically optimizes, compresses, and converts images to WebP on upload, with background bulk processing for your existing media library.
  * Version:           1.0.0
  * Requires at least: 6.3
@@ -11,7 +11,7 @@
  * Author URI:        https://iftiarhossain.com
  * License:           GPL v2 or later
  * License URI:       https://www.gnu.org/licenses/gpl-2.0.html
- * Text Domain:       media-optimizer-by-webxperthub
+ * Text Domain:       webxperthub-media-optimizer
  * Domain Path:       /languages
  */
 

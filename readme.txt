@@ -1,4 +1,4 @@
-=== Media Optimizer by Webxperthub ===
+=== Webxperthub Media Optimizer ===
 Contributors:      iftiarhossain
 Tags:              images, optimize, compress, webp, performance
 Requires at least: 6.3
@@ -12,7 +12,7 @@ Automatically compress and convert your images to WebP on upload, with safe back
 
 == Description ==
 
-Media Optimizer by Webxperthub optimizes your WordPress media library without slowing down your site or your server. It automatically compresses new uploads and converts them to WebP, and lets you bulk-process your entire existing media library safely in the background.
+Webxperthub Media Optimizer optimizes your WordPress media library without slowing down your site or your server. It automatically compresses new uploads and converts them to WebP, and lets you bulk-process your entire existing media library safely in the background.
 
 = Key Features =
 
@@ -28,9 +28,9 @@ Media Optimizer by Webxperthub optimizes your WordPress media library without sl
 
 = How It Works =
 
-When Media Optimizer by Webxperthub is enabled, every new image uploaded to your Media Library is automatically queued for optimization. A background process (WP-Cron) picks up queued images in small batches, so your server is never overloaded even if hundreds of images are queued at once.
+When Webxperthub Media Optimizer is enabled, every new image uploaded to your Media Library is automatically queued for optimization. A background process (WP-Cron) picks up queued images in small batches, so your server is never overloaded even if hundreds of images are queued at once.
 
-Use the **Bulk Optimize** screen under Media Optimizer by Webxperthub in your admin menu to queue your entire existing media library and watch a live progress bar as images are processed.
+Use the **Bulk Optimize** screen under Webxperthub Media Optimizer in your admin menu to queue your entire existing media library and watch a live progress bar as images are processed.
 
 = For Developers =
 
@@ -68,22 +68,22 @@ add_action( 'mopw_after_optimize', function( $attachment_id, $original_size, $ne
 
 1. Upload the plugin folder to /wp-content/plugins/, or install directly through the Plugins screen in your WordPress admin.
 2. Activate the plugin.
-3. Go to Media Optimizer by Webxperthub → Settings to configure quality, output format, and resizing options.
-4. Optionally, go to Media Optimizer by Webxperthub → Bulk Optimize to process your existing media library.
+3. Go to Webxperthub Media Optimizer → Settings to configure quality, output format, and resizing options.
+4. Optionally, go to Webxperthub Media Optimizer → Bulk Optimize to process your existing media library.
 
 == Frequently Asked Questions ==
 
 = Will this plugin send my images to an external server? =
 
-No. Media Optimizer by Webxperthub uses your server's own Imagick or GD library to process images locally. Nothing is ever uploaded to a third-party service.
+No. Webxperthub Media Optimizer uses your server's own Imagick or GD library to process images locally. Nothing is ever uploaded to a third-party service.
 
 = What happens to my original images? =
 
-By default, Media Optimizer by Webxperthub keeps a backup copy of your original file (with a `.mopw-bak` extension) alongside the optimized version. You can disable this in Settings if you don't need it.
+By default, Webxperthub Media Optimizer keeps a backup copy of your original file (with a `.mopw-bak` extension) alongside the optimized version. You can disable this in Settings if you don't need it.
 
 = Does deleting the plugin remove my backup files? =
 
-No. Uninstalling Media Optimizer by Webxperthub removes its settings and internal processing queue, but does not scan your uploads folder for `.mopw-bak` files, to avoid a slow or timed-out uninstall on large media libraries. If you want to remove them, you can safely delete any file ending in `.mopw-bak` from your uploads folder.
+No. Uninstalling Webxperthub Media Optimizer removes its settings and internal processing queue, but does not scan your uploads folder for `.mopw-bak` files, to avoid a slow or timed-out uninstall on large media libraries. If you want to remove them, you can safely delete any file ending in `.mopw-bak` from your uploads folder.
 
 = Will this slow down my server when bulk-optimizing thousands of images? =
 
@@ -91,7 +91,7 @@ No. Bulk optimization uses a background queue processed in small batches (config
 
 = Is this compatible with Multisite? =
 
-Yes. Media Optimizer by Webxperthub can be activated network-wide, and each site maintains its own independent settings and processing queue.
+Yes. Webxperthub Media Optimizer can be activated network-wide, and each site maintains its own independent settings and processing queue.
 
 = What image formats are supported? =
 

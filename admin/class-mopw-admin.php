@@ -8,11 +8,11 @@ if ( ! defined( 'MOPW_VERSION' ) ) {
 }
 
 if ( ! defined( 'MOPW_PLUGIN_DIR' ) ) {
-    define( 'MOPW_PLUGIN_DIR', plugin_dir_path( dirname( __DIR__ ) . '/media-optimizer-by-webxperthub.php' ) );
+    define( 'MOPW_PLUGIN_DIR', plugin_dir_path( dirname( __DIR__ ) . '/webxperthub-media-optimizer.php' ) );
 }
 
 if ( ! defined( 'MOPW_PLUGIN_URL' ) ) {
-    define( 'MOPW_PLUGIN_URL', plugin_dir_url( dirname( __DIR__ ) . '/media-optimizer-by-webxperthub.php' ) );
+    define( 'MOPW_PLUGIN_URL', plugin_dir_url( dirname( __DIR__ ) . '/webxperthub-media-optimizer.php' ) );
 }
 
 if ( ! defined( 'MOPW_OPTION_KEY' ) ) {
@@ -25,8 +25,8 @@ class Mopw_Admin {
     private $settings_hook;
     private $bulk_hook;
 
-    const SETTINGS_SLUG = 'media-optimizer-by-webxperthub-settings';
-    const BULK_SLUG      = 'media-optimizer-by-webxperthub-bulk-optimize';
+    const SETTINGS_SLUG = 'webxperthub-media-optimizer-settings';
+    const BULK_SLUG      = 'webxperthub-media-optimizer-bulk-optimize';
 
     public static function get_instance() {
         if ( null === self::$instance ) {
@@ -43,83 +43,83 @@ class Mopw_Admin {
         add_action( 'wp_ajax_mopw_start_bulk', array( $this, 'ajax_start_bulk' ) );
         add_action( 'wp_ajax_mopw_run_batch', array( $this, 'ajax_run_batch' ) );
 
-        add_filter( 'plugin_action_links_' . plugin_basename( MOPW_PLUGIN_DIR . 'media-optimizer-by-webxperthub.php' ), array( $this, 'add_settings_link' ) );
+        add_filter( 'plugin_action_links_' . plugin_basename( MOPW_PLUGIN_DIR . 'webxperthub-media-optimizer.php' ), array( $this, 'add_settings_link' ) );
     }
 
     public function add_menu() {
-    $this->settings_hook = add_menu_page(
-        __( 'Media Optimizer by Webxperthub', 'media-optimizer-by-webxperthub' ),
-        __( 'Media Optimizer', 'media-optimizer-by-webxperthub' ),
-        'manage_options',
-        self::SETTINGS_SLUG,
-        array( $this, 'render_settings_page' ),
-        'dashicons-images-alt2'
-    );
+        $this->settings_hook = add_menu_page(
+            __( 'Webxperthub Media Optimizer', 'webxperthub-media-optimizer' ),
+            __( 'Media Optimizer', 'webxperthub-media-optimizer' ),
+            'manage_options',
+            self::SETTINGS_SLUG,
+            array( $this, 'render_settings_page' ),
+            'dashicons-images-alt2'
+        );
 
-    add_submenu_page(
-        self::SETTINGS_SLUG,
-        __( 'Settings', 'media-optimizer-by-webxperthub' ),
-        __( 'Settings', 'media-optimizer-by-webxperthub' ),
-        'manage_options',
-        self::SETTINGS_SLUG,
-        array( $this, 'render_settings_page' )
-    );
+        add_submenu_page(
+            self::SETTINGS_SLUG,
+            __( 'Settings', 'webxperthub-media-optimizer' ),
+            __( 'Settings', 'webxperthub-media-optimizer' ),
+            'manage_options',
+            self::SETTINGS_SLUG,
+            array( $this, 'render_settings_page' )
+        );
 
-    $this->bulk_hook = add_submenu_page(
-        self::SETTINGS_SLUG,
-        __( 'Bulk Optimize', 'media-optimizer-by-webxperthub' ),
-        __( 'Bulk Optimize', 'media-optimizer-by-webxperthub' ),
-        'manage_options',
-        self::BULK_SLUG,
-        array( $this, 'render_bulk_page' )
-    );
-}
+        $this->bulk_hook = add_submenu_page(
+            self::SETTINGS_SLUG,
+            __( 'Bulk Optimize', 'webxperthub-media-optimizer' ),
+            __( 'Bulk Optimize', 'webxperthub-media-optimizer' ),
+            'manage_options',
+            self::BULK_SLUG,
+            array( $this, 'render_bulk_page' )
+        );
+    }
 
     public function add_settings_link( $links ) {
         $url  = admin_url( 'admin.php?page=' . self::SETTINGS_SLUG );
-        $link = '<a href="' . esc_url( $url ) . '">' . esc_html__( 'Settings', 'media-optimizer-by-webxperthub' ) . '</a>';
+        $link = '<a href="' . esc_url( $url ) . '">' . esc_html__( 'Settings', 'webxperthub-media-optimizer' ) . '</a>';
         array_unshift( $links, $link );
         return $links;
     }
 
     public function enqueue_assets( $hook ) {
-    if ( ! in_array( $hook, array( $this->settings_hook, $this->bulk_hook ), true ) ) {
-        return;
+        if ( ! in_array( $hook, array( $this->settings_hook, $this->bulk_hook ), true ) ) {
+            return;
+        }
+
+        wp_enqueue_style( 'mopw-admin', MOPW_PLUGIN_URL . 'admin/assets/css/admin.css', array(), MOPW_VERSION );
+        wp_enqueue_script( 'mopw-admin', MOPW_PLUGIN_URL . 'admin/assets/js/admin.js', array( 'jquery' ), MOPW_VERSION, true );
+
+        wp_localize_script( 'mopw-admin', 'mopwAdmin', array(
+            'ajaxUrl' => admin_url( 'admin-ajax.php' ),
+            'nonce'   => wp_create_nonce( 'mopw_bulk_nonce' ),
+        ) );
     }
-
-    wp_enqueue_style( 'mopw-admin', MOPW_PLUGIN_URL . 'admin/assets/css/admin.css', array(), MOPW_VERSION );
-    wp_enqueue_script( 'mopw-admin', MOPW_PLUGIN_URL . 'admin/assets/js/admin.js', array( 'jquery' ), MOPW_VERSION, true );
-
-    wp_localize_script( 'mopw-admin', 'mopwAdmin', array(
-        'ajaxUrl' => admin_url( 'admin-ajax.php' ),
-        'nonce'   => wp_create_nonce( 'mopw_bulk_nonce' ),
-    ) );
-}
 
     public function register_settings() {
         register_setting( 'mopw_settings_group', MOPW_OPTION_KEY, array( $this, 'sanitize_settings' ) );
 
-        add_settings_section( 'mopw_general', __( 'General', 'media-optimizer-by-webxperthub' ), '__return_empty_string', self::SETTINGS_SLUG );
+        add_settings_section( 'mopw_general', __( 'General', 'webxperthub-media-optimizer' ), '__return_empty_string', self::SETTINGS_SLUG );
 
-        add_settings_field( 'enabled', __( 'Enable Plugin', 'media-optimizer-by-webxperthub' ), array( $this, 'field_checkbox' ), self::SETTINGS_SLUG, 'mopw_general', array( 'key' => 'enabled' ) );
-        add_settings_field( 'auto_optimize', __( 'Auto-Optimize on Upload', 'media-optimizer-by-webxperthub' ), array( $this, 'field_checkbox' ), self::SETTINGS_SLUG, 'mopw_general', array( 'key' => 'auto_optimize' ) );
+        add_settings_field( 'enabled', __( 'Enable Plugin', 'webxperthub-media-optimizer' ), array( $this, 'field_checkbox' ), self::SETTINGS_SLUG, 'mopw_general', array( 'key' => 'enabled' ) );
+        add_settings_field( 'auto_optimize', __( 'Auto-Optimize on Upload', 'webxperthub-media-optimizer' ), array( $this, 'field_checkbox' ), self::SETTINGS_SLUG, 'mopw_general', array( 'key' => 'auto_optimize' ) );
 
-        add_settings_section( 'mopw_compression', __( 'Compression', 'media-optimizer-by-webxperthub' ), '__return_empty_string', self::SETTINGS_SLUG );
+        add_settings_section( 'mopw_compression', __( 'Compression', 'webxperthub-media-optimizer' ), '__return_empty_string', self::SETTINGS_SLUG );
 
-        add_settings_field( 'output_format', __( 'Output Format', 'media-optimizer-by-webxperthub' ), array( $this, 'field_select_format' ), self::SETTINGS_SLUG, 'mopw_compression' );
-        add_settings_field( 'quality', __( 'Quality', 'media-optimizer-by-webxperthub' ), array( $this, 'field_quality_slider' ), self::SETTINGS_SLUG, 'mopw_compression' );
-        add_settings_field( 'keep_original', __( 'Keep Original as Backup', 'media-optimizer-by-webxperthub' ), array( $this, 'field_checkbox' ), self::SETTINGS_SLUG, 'mopw_compression', array( 'key' => 'keep_original' ) );
-        add_settings_field( 'preserve_exif', __( 'Preserve Image Metadata (EXIF)', 'media-optimizer-by-webxperthub' ), array( $this, 'field_checkbox' ), self::SETTINGS_SLUG, 'mopw_compression', array( 'key' => 'preserve_exif' ) );
+        add_settings_field( 'output_format', __( 'Output Format', 'webxperthub-media-optimizer' ), array( $this, 'field_select_format' ), self::SETTINGS_SLUG, 'mopw_compression' );
+        add_settings_field( 'quality', __( 'Quality', 'webxperthub-media-optimizer' ), array( $this, 'field_quality_slider' ), self::SETTINGS_SLUG, 'mopw_compression' );
+        add_settings_field( 'keep_original', __( 'Keep Original as Backup', 'webxperthub-media-optimizer' ), array( $this, 'field_checkbox' ), self::SETTINGS_SLUG, 'mopw_compression', array( 'key' => 'keep_original' ) );
+        add_settings_field( 'preserve_exif', __( 'Preserve Image Metadata (EXIF)', 'webxperthub-media-optimizer' ), array( $this, 'field_checkbox' ), self::SETTINGS_SLUG, 'mopw_compression', array( 'key' => 'preserve_exif' ) );
 
-        add_settings_section( 'mopw_resize', __( 'Resizing', 'media-optimizer-by-webxperthub' ), '__return_empty_string', self::SETTINGS_SLUG );
+        add_settings_section( 'mopw_resize', __( 'Resizing', 'webxperthub-media-optimizer' ), '__return_empty_string', self::SETTINGS_SLUG );
 
-        add_settings_field( 'resize_large_images', __( 'Resize Oversized Uploads', 'media-optimizer-by-webxperthub' ), array( $this, 'field_checkbox' ), self::SETTINGS_SLUG, 'mopw_resize', array( 'key' => 'resize_large_images' ) );
-        add_settings_field( 'max_width', __( 'Max Width (px)', 'media-optimizer-by-webxperthub' ), array( $this, 'field_number' ), self::SETTINGS_SLUG, 'mopw_resize', array( 'key' => 'max_width' ) );
-        add_settings_field( 'max_height', __( 'Max Height (px)', 'media-optimizer-by-webxperthub' ), array( $this, 'field_number' ), self::SETTINGS_SLUG, 'mopw_resize', array( 'key' => 'max_height' ) );
+        add_settings_field( 'resize_large_images', __( 'Resize Oversized Uploads', 'webxperthub-media-optimizer' ), array( $this, 'field_checkbox' ), self::SETTINGS_SLUG, 'mopw_resize', array( 'key' => 'resize_large_images' ) );
+        add_settings_field( 'max_width', __( 'Max Width (px)', 'webxperthub-media-optimizer' ), array( $this, 'field_number' ), self::SETTINGS_SLUG, 'mopw_resize', array( 'key' => 'max_width' ) );
+        add_settings_field( 'max_height', __( 'Max Height (px)', 'webxperthub-media-optimizer' ), array( $this, 'field_number' ), self::SETTINGS_SLUG, 'mopw_resize', array( 'key' => 'max_height' ) );
 
-        add_settings_section( 'mopw_performance', __( 'Performance', 'media-optimizer-by-webxperthub' ), '__return_empty_string', self::SETTINGS_SLUG );
+        add_settings_section( 'mopw_performance', __( 'Performance', 'webxperthub-media-optimizer' ), '__return_empty_string', self::SETTINGS_SLUG );
 
-        add_settings_field( 'batch_size', __( 'Images Per Batch', 'media-optimizer-by-webxperthub' ), array( $this, 'field_number' ), self::SETTINGS_SLUG, 'mopw_performance', array( 'key' => 'batch_size' ) );
+        add_settings_field( 'batch_size', __( 'Images Per Batch', 'webxperthub-media-optimizer' ), array( $this, 'field_number' ), self::SETTINGS_SLUG, 'mopw_performance', array( 'key' => 'batch_size' ) );
     }
 
     public function field_checkbox( $args ) {
@@ -148,9 +148,9 @@ class Mopw_Admin {
     public function field_select_format() {
         $current = Mopw_Settings::get( 'output_format' );
         $options = array(
-            'webp'     => __( 'WebP (recommended)', 'media-optimizer-by-webxperthub' ),
-            'png'      => __( 'PNG', 'media-optimizer-by-webxperthub' ),
-            'original' => __( 'Keep Original Format (compress only)', 'media-optimizer-by-webxperthub' ),
+            'webp'     => __( 'WebP (recommended)', 'webxperthub-media-optimizer' ),
+            'png'      => __( 'PNG', 'webxperthub-media-optimizer' ),
+            'original' => __( 'Keep Original Format (compress only)', 'webxperthub-media-optimizer' ),
         );
 
         echo '<select name="' . esc_attr( MOPW_OPTION_KEY ) . '[output_format]">';
@@ -174,7 +174,7 @@ class Mopw_Admin {
             esc_attr( (string) $val ),
             esc_html( (string) $val )
         );
-        echo '<p class="description">' . esc_html__( '82 is a good balance of size vs. quality for most sites.', 'media-optimizer-by-webxperthub' ) . '</p>';
+        echo '<p class="description">' . esc_html__( '82 is a good balance of size vs. quality for most sites.', 'webxperthub-media-optimizer' ) . '</p>';
     }
 
     public function sanitize_settings( $input ) {
@@ -209,7 +209,7 @@ class Mopw_Admin {
         }
         ?>
         <div class="wrap mopw-wrap">
-            <h1><?php esc_html_e( 'Media Optimizer by Webxperthub Settings', 'media-optimizer-by-webxperthub' ); ?></h1>
+            <h1><?php esc_html_e( 'Webxperthub Media Optimizer Settings', 'webxperthub-media-optimizer' ); ?></h1>
             <form method="post" action="options.php">
                 <?php
                 settings_fields( 'mopw_settings_group' );
@@ -229,21 +229,21 @@ class Mopw_Admin {
         $pending = Mopw_Queue::get_instance()->count_pending();
         ?>
         <div class="wrap mopw-wrap">
-            <h1><?php esc_html_e( 'Bulk Optimize', 'media-optimizer-by-webxperthub' ); ?></h1>
-            <p><?php esc_html_e( 'Queue every un-optimized image in your Media Library for background processing.', 'media-optimizer-by-webxperthub' ); ?></p>
+            <h1><?php esc_html_e( 'Bulk Optimize', 'webxperthub-media-optimizer' ); ?></h1>
+            <p><?php esc_html_e( 'Queue every un-optimized image in your Media Library for background processing.', 'webxperthub-media-optimizer' ); ?></p>
 
             <p>
                 <?php
                 printf(
                     /* translators: %d is the number of images currently queued and pending. */
-                    esc_html__( 'Currently pending: %d', 'media-optimizer-by-webxperthub' ),
+                    esc_html__( 'Currently pending: %d', 'webxperthub-media-optimizer' ),
                     (int) $pending
                 );
                 ?>
             </p>
 
             <button type="button" id="mopw-start-bulk" class="button button-primary">
-                <?php esc_html_e( 'Start Bulk Optimize', 'media-optimizer-by-webxperthub' ); ?>
+                <?php esc_html_e( 'Start Bulk Optimize', 'webxperthub-media-optimizer' ); ?>
             </button>
 
             <div id="mopw-progress-wrap" style="display:none; margin-top:20px;">
@@ -262,7 +262,7 @@ class Mopw_Admin {
         check_ajax_referer( 'mopw_bulk_nonce', 'nonce' );
 
         if ( ! current_user_can( 'manage_options' ) ) {
-            wp_send_json_error( array( 'message' => __( 'Permission denied.', 'media-optimizer-by-webxperthub' ) ), 403 );
+            wp_send_json_error( array( 'message' => __( 'Permission denied.', 'webxperthub-media-optimizer' ) ), 403 );
         }
 
         $queued = Mopw_Queue::get_instance()->enqueue_all_unoptimized();
@@ -278,7 +278,7 @@ class Mopw_Admin {
         check_ajax_referer( 'mopw_bulk_nonce', 'nonce' );
 
         if ( ! current_user_can( 'manage_options' ) ) {
-            wp_send_json_error( array( 'message' => __( 'Permission denied.', 'media-optimizer-by-webxperthub' ) ), 403 );
+            wp_send_json_error( array( 'message' => __( 'Permission denied.', 'webxperthub-media-optimizer' ) ), 403 );
         }
 
         $stats = Mopw_Queue::get_instance()->process_batch();

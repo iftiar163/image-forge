@@ -4,7 +4,7 @@
  *
  * Works purely with file paths, not attachment IDs. No hooks registered.
  *
- * @package MediaOptimizerByWebxperthub
+ * @package WebxperthubMediaOptimizer
  */
 
 if ( ! defined( 'ABSPATH' ) ) {
@@ -31,7 +31,7 @@ class Mopw_Converter {
         if ( ! Mopw_Media_Handler::is_path_safe( $source_path ) ) {
             return array(
                 'success' => false,
-                'error'   => __( 'Source path failed safety check.', 'media-optimizer-by-webxperthub' ),
+                'error'   => __( 'Source path failed safety check.', 'webxperthub-media-optimizer' ),
             );
         }
 
@@ -51,7 +51,7 @@ class Mopw_Converter {
 
         return array(
             'success' => false,
-            'error'   => __( 'No supported image processing library found on this server.', 'media-optimizer-by-webxperthub' ),
+            'error'   => __( 'No supported image processing library found on this server.', 'webxperthub-media-optimizer' ),
         );
     }
 
@@ -87,7 +87,7 @@ class Mopw_Converter {
         if ( ! $result ) {
             return array(
                 'success' => false,
-                'error'   => __( 'Imagick failed to write the converted image.', 'media-optimizer-by-webxperthub' ),
+                'error'   => __( 'Imagick failed to write the converted image.', 'webxperthub-media-optimizer' ),
             );
         }
 
@@ -97,7 +97,7 @@ class Mopw_Converter {
         return array(
             'success' => false,
             // translators: %s is the underlying library error message.
-            'error'   => sprintf( __( 'Imagick error: %s', 'media-optimizer-by-webxperthub' ), $e->getMessage() ),
+            'error'   => sprintf( __( 'Imagick error: %s', 'webxperthub-media-optimizer' ), $e->getMessage() ),
         );
     }
 }
@@ -112,7 +112,7 @@ class Mopw_Converter {
         if ( false === $image_info ) {
             return array(
                 'success' => false,
-                'error'   => __( 'Could not read image dimensions.', 'media-optimizer-by-webxperthub' ),
+                'error'   => __( 'Could not read image dimensions.', 'webxperthub-media-optimizer' ),
             );
         }
 
@@ -123,7 +123,7 @@ class Mopw_Converter {
         if ( ! $source_image ) {
             return array(
                 'success' => false,
-                'error'   => __( 'Unsupported source format for GD.', 'media-optimizer-by-webxperthub' ),
+                'error'   => __( 'Unsupported source format for GD.', 'webxperthub-media-optimizer' ),
             );
         }
 
@@ -155,7 +155,7 @@ class Mopw_Converter {
         if ( ! $success ) {
             return array(
                 'success' => false,
-                'error'   => __( 'GD failed to write the converted image.', 'media-optimizer-by-webxperthub' ),
+                'error'   => __( 'GD failed to write the converted image.', 'webxperthub-media-optimizer' ),
             );
         }
 
