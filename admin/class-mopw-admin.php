@@ -227,19 +227,33 @@ class Mopw_Admin {
         }
 
         $pending = Mopw_Queue::get_instance()->count_pending();
+        $queue = Mopw_Queue::get_instance();
+        $pending = $queue->count_pending();
+        $unoptimized = $queue->count_unoptimized();
+
         ?>
         <div class="wrap mopw-wrap">
             <h1><?php esc_html_e( 'Bulk Optimize', 'webxperthub-media-optimizer' ); ?></h1>
             <p><?php esc_html_e( 'Queue every un-optimized image in your Media Library for background processing.', 'webxperthub-media-optimizer' ); ?></p>
 
             <p>
-                <?php
-                printf(
-                    /* translators: %d is the number of images currently queued and pending. */
-                    esc_html__( 'Currently pending: %d', 'webxperthub-media-optimizer' ),
-                    (int) $pending
-                );
-                ?>
+                <?php if ( $pending > 0 ) : ?>
+                    <?php
+                    printf(
+                        /* translators: %d is the number of images currently in the processing queue. */
+                        esc_html__( 'Currently processing: %d images remaining in queue.', 'webxperthub-media-optimizer' ),
+                        (int) $pending
+                    );
+                    ?>
+                <?php else : ?>
+                    <?php
+                    printf(
+                        /* translators: %d is the number of un-optimized images found in the Media Library. */
+                        esc_html__( '%d images in your Media Library have not been optimized yet.', 'webxperthub-media-optimizer' ),
+                        (int) $unoptimized
+                    );
+                    ?>
+                <?php endif; ?>
             </p>
 
             <button type="button" id="mopw-start-bulk" class="button button-primary">

@@ -145,6 +145,8 @@ class Mopw_Optimizer {
         update_post_meta( $attachment_id, '_mopw_original_size', $original_size );
         update_post_meta( $attachment_id, '_mopw_new_size', $new_size );
 
+        wp_cache_delete( 'mopw_unoptimized_count', 'mopw' );
+
         do_action( 'mopw_after_optimize', $attachment_id, $original_size, $new_size );
 
         return array( 'success' => true );

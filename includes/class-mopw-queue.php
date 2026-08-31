@@ -222,4 +222,43 @@ class Mopw_Queue {
         global $wpdb;
         return $wpdb->prefix . MOPW_QUEUE_TABLE;
     }
+
+    /**
+ * Counts Media Library attachments that haven't been optimized yet,
+ * regardless of whether they're currently in the queue table. This is
+ * what the Bulk Optimize screen should show BEFORE the user clicks
+ * "Start" — count_pending() only reflects the queue table, which is
+ * empty until something is actually enqueued.
+ *
+ * @return int
+ */
+public function count_unoptimized() {
+    $cache_key = 'mopw_unoptimized_count';
+    $count     = wp_cache_get( $cache_key, 'mopw' );
+
+    if ( false !== $count ) {
+        return (int) $count;
+    }
+
+    $query = new WP_Query( array(
+        'post_type'      => 'attachment',
+        'post_status'    => 'inherit',
+        'post_mime_type' => (array) Mopw_Settings::get( 'allowed_mime_types' ),
+        'posts_per_page' => 1,
+        'fields'         => 'ids',
+        'no_found_rows'  => false,
+        'meta_query'     => array(
+            array(
+                'key'     => '_mopw_optimized',
+                'compare' => 'NOT EXISTS',
+            ),
+        ),
+    ) );
+
+    $count = (int) $query->found_posts;
+
+    wp_cache_set( $cache_key, $count, 'mopw', 30 );
+
+    return $count;
+}
 }
