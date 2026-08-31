@@ -80,7 +80,8 @@ function mopw_install_site($defaults)
         updated_at DATETIME NOT NULL,
         PRIMARY KEY  (id),
         KEY attachment_id (attachment_id),
-        KEY status (status)
+        KEY status (status),
+        KEY status_attachment (status, attachment_id)
     ) {$charset_collate};";
 
     require_once ABSPATH . 'wp-admin/includes/upgrade.php';
@@ -89,10 +90,13 @@ function mopw_install_site($defaults)
 
 function mopw_deactivate()
 {
-    $timestamps = wp_next_scheduled('mopw_process_queue');
-    if ($timestamps) {
-        wp_unschedule_event($timestamps, 'mopw_process_queue');
+    // Clear every scheduled occurrence of our cron hook.
+    $timestamp = wp_next_scheduled( 'mopw_process_queue' );
+    while ( $timestamp ) {
+        wp_unschedule_event( $timestamp, 'mopw_process_queue' );
+        $timestamp = wp_next_scheduled( 'mopw_process_queue' );
     }
+    wp_clear_scheduled_hook( 'mopw_process_queue' );
 }
 
 add_action('plugins_loaded', 'mopw_init');

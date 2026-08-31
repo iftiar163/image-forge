@@ -1,264 +1,376 @@
 <?php
+/**
+ * Background queue — stores pending attachment IDs and processes batches.
+ *
+ * @package WebxperthubMediaOptimizer
+ */
+
 if ( ! defined( 'ABSPATH' ) ) {
-    exit;
+	exit;
 }
 
 class Mopw_Queue {
 
-    private static $instance = null;
+	private static $instance = null;
 
-    const CRON_HOOK = 'mopw_process_queue';
+	const CRON_HOOK = 'mopw_process_queue';
 
-    public static function get_instance() {
-        if ( null === self::$instance ) {
-            self::$instance = new self();
-        }
-        return self::$instance;
-    }
+	public static function get_instance() {
+		if ( null === self::$instance ) {
+			self::$instance = new self();
+		}
+		return self::$instance;
+	}
 
-    private function __construct() {
-        add_action( self::CRON_HOOK, array( $this, 'process_batch' ) );
-        add_filter( 'cron_schedules', array( $this, 'register_cron_interval' ) );
+	private function __construct() {
+		add_action( self::CRON_HOOK, array( $this, 'process_batch' ) );
+		add_filter( 'cron_schedules', array( $this, 'register_cron_interval' ) );
 
-        if ( ! wp_next_scheduled( self::CRON_HOOK ) ) {
-            wp_schedule_event( time(), 'mopw_five_minutes', self::CRON_HOOK );
-        }
-    }
+		if ( ! wp_next_scheduled( self::CRON_HOOK ) ) {
+			wp_schedule_event( time(), 'mopw_five_minutes', self::CRON_HOOK );
+		}
+	}
 
-    public function register_cron_interval( $schedules ) {
-        $schedules['mopw_five_minutes'] = array(
-            'interval' => 5 * MINUTE_IN_SECONDS,
-            'display'  => __( 'Every 5 Minutes (Webxperthub Media Optimizer)', 'webxperthub-media-optimizer' ),
-        );
-        return $schedules;
-    }
+	public function register_cron_interval( $schedules ) {
+		$schedules['mopw_five_minutes'] = array(
+			'interval' => 5 * MINUTE_IN_SECONDS,
+			'display'  => __( 'Every 5 Minutes (Webxperthub Media Optimizer)', 'webxperthub-media-optimizer' ),
+		);
+		return $schedules;
+	}
 
-    public function enqueue( $attachment_id ) {
-        global $wpdb;
+	/**
+	 * Add an attachment to the queue if not already pending/processing.
+	 *
+	 * @param int $attachment_id Attachment ID.
+	 * @return bool True if a new row was inserted.
+	 */
+	public function enqueue( $attachment_id ) {
+		global $wpdb;
 
-        $table       = $this->table_name();
-        $attachment_id = absint( $attachment_id );
-        $cache_key   = 'mopw_queue_exists_' . $attachment_id;
+		$table         = $this->table_name();
+		$attachment_id = absint( $attachment_id );
 
-        $exists = wp_cache_get( $cache_key, 'mopw' );
-        if ( false === $exists ) {
-            // phpcs:ignore WordPress.DB.DirectDatabaseQuery.DirectQuery
-            $exists = $wpdb->get_var( $wpdb->prepare(
-                'SELECT id FROM ' . esc_sql( $table ) . " WHERE attachment_id = %d AND status IN ('pending','processing')",
-                $attachment_id
-            ) );
-            wp_cache_set( $cache_key, $exists, 'mopw', 30 );
-        }
+		// phpcs:ignore WordPress.DB.DirectDatabaseQuery.DirectQuery, WordPress.DB.DirectDatabaseQuery.NoCaching
+		$exists = $wpdb->get_var(
+			$wpdb->prepare(
+				"SELECT id FROM {$table} WHERE attachment_id = %d AND status IN ('pending','processing') LIMIT 1",
+				$attachment_id
+			)
+		);
 
-        if ( $exists ) {
-            return false;
-        }
+		if ( $exists ) {
+			return false;
+		}
 
-        $now = current_time( 'mysql' );
+		$now = current_time( 'mysql' );
 
-        // phpcs:ignore WordPress.DB.DirectDatabaseQuery.DirectQuery
-        $inserted = $wpdb->insert(
-            $table,
-            array(
-                'attachment_id' => $attachment_id,
-                'status'        => 'pending',
-                'created_at'    => $now,
-                'updated_at'    => $now,
-            ),
-            array( '%d', '%s', '%s', '%s' )
-        );
+		// phpcs:ignore WordPress.DB.DirectDatabaseQuery.DirectQuery
+		$inserted = $wpdb->insert(
+			$table,
+			array(
+				'attachment_id' => $attachment_id,
+				'status'        => 'pending',
+				'created_at'    => $now,
+				'updated_at'    => $now,
+			),
+			array( '%d', '%s', '%s', '%s' )
+		);
 
-        if ( false !== $inserted ) {
-            wp_cache_delete( $cache_key, 'mopw' );
-        }
+		if ( false !== $inserted ) {
+			wp_cache_delete( 'mopw_pending_count', 'mopw' );
+		}
 
-        return false !== $inserted;
-    }
+		return false !== $inserted;
+	}
 
-    public function process_batch() {
-        global $wpdb;
-        $table = $this->table_name();
+	/**
+	 * Claim and process a batch of pending rows.
+	 * Uses a short-lived transient lock to avoid concurrent runners.
+	 *
+	 * @return array{processed:int, failed:int, remaining:int}
+	 */
+	public function process_batch() {
+		global $wpdb;
+		$table = $this->table_name();
 
-        $time_budget_seconds = (float) apply_filters( 'mopw_batch_time_budget', 20 );
-        $start_time          = microtime( true );
+		$lock_key = 'mopw_batch_lock';
+		if ( get_transient( $lock_key ) ) {
+			return array(
+				'processed' => 0,
+				'failed'    => 0,
+				'remaining' => $this->count_pending(),
+			);
+		}
+		set_transient( $lock_key, 1, 60 );
 
-        $max_rows_to_fetch = max( 1, (int) Mopw_Settings::get( 'batch_size' ) );
-        $cache_key         = 'mopw_pending_rows_' . $max_rows_to_fetch;
+		$time_budget_seconds = (float) apply_filters( 'mopw_batch_time_budget', 20 );
+		$start_time          = microtime( true );
 
-        $rows = wp_cache_get( $cache_key, 'mopw' );
-        if ( false === $rows ) {
-            // phpcs:ignore WordPress.DB.DirectDatabaseQuery.DirectQuery
-            $rows = $wpdb->get_results( $wpdb->prepare(
-                'SELECT id, attachment_id FROM ' . esc_sql( $table ) . " WHERE status = 'pending' ORDER BY id ASC LIMIT %d",
-                $max_rows_to_fetch
-            ) );
-            wp_cache_set( $cache_key, $rows, 'mopw', 10 );
-        }
+		$max_rows = max( 1, (int) Mopw_Settings::get( 'batch_size' ) );
 
-        $processed = 0;
-        $failed    = 0;
+		// Claim rows: mark pending -> processing in one statement.
+		// phpcs:ignore WordPress.DB.DirectDatabaseQuery.DirectQuery, WordPress.DB.DirectDatabaseQuery.NoCaching
+		$wpdb->query(
+			$wpdb->prepare(
+				"UPDATE {$table} SET status = 'processing', updated_at = %s
+				WHERE status = 'pending'
+				ORDER BY id ASC
+				LIMIT %d",
+				current_time( 'mysql' ),
+				$max_rows
+			)
+		);
 
-        foreach ( $rows as $row ) {
+		// phpcs:ignore WordPress.DB.DirectDatabaseQuery.DirectQuery, WordPress.DB.DirectDatabaseQuery.NoCaching
+		$rows = $wpdb->get_results(
+			$wpdb->prepare(
+				"SELECT id, attachment_id FROM {$table} WHERE status = 'processing' ORDER BY id ASC LIMIT %d",
+				$max_rows
+			)
+		);
 
-            if ( ( microtime( true ) - $start_time ) >= $time_budget_seconds ) {
-                break;
-            }
+		$processed = 0;
+		$failed    = 0;
 
-            $this->mark_status( $row->id, 'processing' );
+		foreach ( (array) $rows as $row ) {
 
-            $result = Mopw_Optimizer::process( (int) $row->attachment_id );
+			if ( ( microtime( true ) - $start_time ) >= $time_budget_seconds ) {
+				// phpcs:ignore WordPress.DB.DirectDatabaseQuery.DirectQuery, WordPress.DB.DirectDatabaseQuery.NoCaching
+				$wpdb->update(
+					$table,
+					array(
+						'status'     => 'pending',
+						'updated_at' => current_time( 'mysql' ),
+					),
+					array(
+						'id'     => $row->id,
+						'status' => 'processing',
+					),
+					array( '%s', '%s' ),
+					array( '%d', '%s' )
+				);
+				continue;
+			}
 
-            if ( $result['success'] ) {
-                $this->mark_status( $row->id, 'done' );
-                $processed++;
-            } else {
-                $this->mark_failed( $row->id, $result['error'] );
-                $failed++;
-            }
-        }
+			$result = Mopw_Optimizer::process( (int) $row->attachment_id );
 
-        return array(
-            'processed' => $processed,
-            'failed'    => $failed,
-            'remaining' => $this->count_pending(),
-        );
-    }
+			if ( ! empty( $result['success'] ) ) {
+				$this->mark_status( $row->id, 'done' );
+				$processed++;
+			} else {
+				$error = isset( $result['error'] ) ? $result['error'] : __( 'Unknown error.', 'webxperthub-media-optimizer' );
+				$this->mark_failed( $row->id, $error );
+				$failed++;
+			}
+		}
 
-    private function mark_failed( $row_id, $error_message ) {
-        global $wpdb;
-        $table = $this->table_name();
-        $row_id = absint( $row_id );
+		delete_transient( $lock_key );
+		wp_cache_delete( 'mopw_pending_count', 'mopw' );
 
-        $attempts = wp_cache_get( 'mopw_attempts_' . $row_id, 'mopw' );
-        if ( false === $attempts ) {
-            // phpcs:ignore WordPress.DB.DirectDatabaseQuery.DirectQuery
-            $attempts = (int) $wpdb->get_var( $wpdb->prepare(
-                'SELECT attempts FROM ' . esc_sql( $table ) . ' WHERE id = %d',
-                $row_id
-            ) );
-            wp_cache_set( 'mopw_attempts_' . $row_id, $attempts, 'mopw', 30 );
-        }
+		return array(
+			'processed' => $processed,
+			'failed'    => $failed,
+			'remaining' => $this->count_pending(),
+		);
+	}
 
-        $new_status = ( $attempts + 1 >= 3 ) ? 'error' : 'pending';
+	/**
+	 * @param int    $row_id        Queue row ID.
+	 * @param string $error_message Error text.
+	 */
+	private function mark_failed( $row_id, $error_message ) {
+		global $wpdb;
+		$table  = $this->table_name();
+		$row_id = absint( $row_id );
 
-        // phpcs:ignore WordPress.DB.DirectDatabaseQuery.DirectQuery
-        $wpdb->update(
-            $table,
-            array(
-                'status'        => $new_status,
-                'attempts'      => $attempts + 1,
-                'error_message' => sanitize_text_field( $error_message ),
-                'updated_at'    => current_time( 'mysql' ),
-            ),
-            array( 'id' => $row_id ),
-            array( '%s', '%d', '%s', '%s' ),
-            array( '%d' )
-        );
+		// phpcs:ignore WordPress.DB.DirectDatabaseQuery.DirectQuery, WordPress.DB.DirectDatabaseQuery.NoCaching
+		$attempts = (int) $wpdb->get_var(
+			$wpdb->prepare(
+				"SELECT attempts FROM {$table} WHERE id = %d",
+				$row_id
+			)
+		);
 
-        wp_cache_delete( 'mopw_pending_count', 'mopw' );
-        wp_cache_delete( 'mopw_attempts_' . $row_id, 'mopw' );
-    }
+		$new_status = ( $attempts + 1 >= 3 ) ? 'error' : 'pending';
 
-    private function mark_status( $row_id, $status ) {
-        global $wpdb;
-        $row_id = absint( $row_id );
+		// phpcs:ignore WordPress.DB.DirectDatabaseQuery.DirectQuery
+		$wpdb->update(
+			$table,
+			array(
+				'status'        => $new_status,
+				'attempts'      => $attempts + 1,
+				'error_message' => sanitize_text_field( $error_message ),
+				'updated_at'    => current_time( 'mysql' ),
+			),
+			array( 'id' => $row_id ),
+			array( '%s', '%d', '%s', '%s' ),
+			array( '%d' )
+		);
 
-        // phpcs:ignore WordPress.DB.DirectDatabaseQuery.DirectQuery
-        $wpdb->update(
-            $this->table_name(),
-            array( 'status' => $status, 'updated_at' => current_time( 'mysql' ) ),
-            array( 'id' => $row_id ),
-            array( '%s', '%s' ),
-            array( '%d' )
-        );
+		wp_cache_delete( 'mopw_pending_count', 'mopw' );
+	}
 
-        wp_cache_delete( 'mopw_pending_count', 'mopw' );
-    }
+	/**
+	 * @param int    $row_id Queue row ID.
+	 * @param string $status New status.
+	 */
+	private function mark_status( $row_id, $status ) {
+		global $wpdb;
+		$row_id = absint( $row_id );
 
-    public function count_pending() {
-        global $wpdb;
+		// phpcs:ignore WordPress.DB.DirectDatabaseQuery.DirectQuery
+		$wpdb->update(
+			$this->table_name(),
+			array(
+				'status'     => $status,
+				'updated_at' => current_time( 'mysql' ),
+			),
+			array( 'id' => $row_id ),
+			array( '%s', '%s' ),
+			array( '%d' )
+		);
 
-        $cache_key = 'mopw_pending_count';
-        $count     = wp_cache_get( $cache_key, 'mopw' );
+		wp_cache_delete( 'mopw_pending_count', 'mopw' );
+	}
 
-        if ( false === $count ) {
-            // phpcs:ignore WordPress.DB.DirectDatabaseQuery.DirectQuery
-            $count = (int) $wpdb->get_var(
-                'SELECT COUNT(*) FROM ' . esc_sql( $this->table_name() ) . " WHERE status = 'pending'"
-            );
-            wp_cache_set( $cache_key, $count, 'mopw', 30 );
-        }
+	/**
+	 * @return int
+	 */
+	public function count_pending() {
+		global $wpdb;
 
-        return $count;
-    }
+		$cache_key = 'mopw_pending_count';
+		$count     = wp_cache_get( $cache_key, 'mopw' );
 
-    public function enqueue_all_unoptimized() {
-        $query = new WP_Query( array(
-            'post_type'      => 'attachment',
-            'post_status'    => 'inherit',
-            'post_mime_type' => (array) Mopw_Settings::get( 'allowed_mime_types' ),
-            'posts_per_page' => -1,
-            'fields'         => 'ids',
-            'no_found_rows'  => true,
-            'meta_query'     => array(
-                array(
-                    'key'     => '_mopw_optimized',
-                    'compare' => 'NOT EXISTS',
-                ),
-            ),
-        ) );
+		if ( false === $count ) {
+			// phpcs:ignore WordPress.DB.DirectDatabaseQuery.DirectQuery, WordPress.DB.DirectDatabaseQuery.NoCaching
+			$count = (int) $wpdb->get_var(
+				"SELECT COUNT(*) FROM {$this->table_name()} WHERE status = 'pending'"
+			);
+			wp_cache_set( $cache_key, $count, 'mopw', 15 );
+		}
 
-        $count = 0;
-        foreach ( $query->posts as $attachment_id ) {
-            if ( $this->enqueue( $attachment_id ) ) {
-                $count++;
-            }
-        }
+		return (int) $count;
+	}
 
-        return $count;
-    }
+	/**
+	 * Enqueue all unoptimized attachments in chunks to avoid memory exhaustion.
+	 *
+	 * @param int $chunk_size Number of IDs per WP_Query page.
+	 * @return int Number of newly enqueued items.
+	 */
+	public function enqueue_all_unoptimized( $chunk_size = 200 ) {
+		$chunk_size = max( 50, min( 500, (int) $chunk_size ) );
+		$offset     = 0;
+		$total      = 0;
 
-    private function table_name() {
-        global $wpdb;
-        return $wpdb->prefix . MOPW_QUEUE_TABLE;
-    }
+		do {
+			$query = new WP_Query(
+				array(
+					'post_type'              => 'attachment',
+					'post_status'            => 'inherit',
+					'post_mime_type'         => (array) Mopw_Settings::get( 'allowed_mime_types' ),
+					'posts_per_page'         => $chunk_size,
+					'offset'                 => $offset,
+					'fields'                 => 'ids',
+					'no_found_rows'          => true,
+					'update_post_meta_cache' => false,
+					'update_post_term_cache' => false,
+					'meta_query'             => array( // phpcs:ignore WordPress.DB.SlowDBQuery.slow_db_query_meta_query
+						array(
+							'key'     => '_mopw_optimized',
+							'compare' => 'NOT EXISTS',
+						),
+					),
+				)
+			);
 
-    /**
- * Counts Media Library attachments that haven't been optimized yet,
- * regardless of whether they're currently in the queue table. This is
- * what the Bulk Optimize screen should show BEFORE the user clicks
- * "Start" — count_pending() only reflects the queue table, which is
- * empty until something is actually enqueued.
- *
- * @return int
- */
-public function count_unoptimized() {
-    $cache_key = 'mopw_unoptimized_count';
-    $count     = wp_cache_get( $cache_key, 'mopw' );
+			$ids = $query->posts;
+			foreach ( $ids as $attachment_id ) {
+				if ( $this->enqueue( $attachment_id ) ) {
+					$total++;
+				}
+			}
 
-    if ( false !== $count ) {
-        return (int) $count;
-    }
+			$fetched = count( $ids );
+			$offset += $chunk_size;
 
-    $query = new WP_Query( array(
-        'post_type'      => 'attachment',
-        'post_status'    => 'inherit',
-        'post_mime_type' => (array) Mopw_Settings::get( 'allowed_mime_types' ),
-        'posts_per_page' => 1,
-        'fields'         => 'ids',
-        'no_found_rows'  => false,
-        'meta_query'     => array(
-            array(
-                'key'     => '_mopw_optimized',
-                'compare' => 'NOT EXISTS',
-            ),
-        ),
-    ) );
+		} while ( $fetched === $chunk_size );
 
-    $count = (int) $query->found_posts;
+		wp_cache_delete( 'mopw_pending_count', 'mopw' );
+		wp_cache_delete( 'mopw_unoptimized_count', 'mopw' );
 
-    wp_cache_set( $cache_key, $count, 'mopw', 30 );
+		return $total;
+	}
 
-    return $count;
-}
+	/**
+	 * @return string
+	 */
+	private function table_name() {
+		global $wpdb;
+		return $wpdb->prefix . MOPW_QUEUE_TABLE;
+	}
+
+	/**
+	 * Count Media Library attachments that haven't been optimized yet.
+	 *
+	 * @return int
+	 */
+	public function count_unoptimized() {
+		$cache_key = 'mopw_unoptimized_count';
+		$count     = wp_cache_get( $cache_key, 'mopw' );
+
+		if ( false !== $count ) {
+			return (int) $count;
+		}
+
+		$query = new WP_Query(
+			array(
+				'post_type'              => 'attachment',
+				'post_status'            => 'inherit',
+				'post_mime_type'         => (array) Mopw_Settings::get( 'allowed_mime_types' ),
+				'posts_per_page'         => 1,
+				'fields'                 => 'ids',
+				'no_found_rows'          => false,
+				'update_post_meta_cache' => false,
+				'update_post_term_cache' => false,
+				'meta_query'             => array( // phpcs:ignore WordPress.DB.SlowDBQuery.slow_db_query_meta_query
+					array(
+						'key'     => '_mopw_optimized',
+						'compare' => 'NOT EXISTS',
+					),
+				),
+			)
+		);
+
+		$count = (int) $query->found_posts;
+		wp_cache_set( $cache_key, $count, 'mopw', 30 );
+
+		return $count;
+	}
+
+	/**
+	 * Cancel all pending/processing rows.
+	 *
+	 * @return int Number of rows cancelled.
+	 */
+	public function cancel_all_pending() {
+		global $wpdb;
+		$table = $this->table_name();
+		$now   = current_time( 'mysql' );
+
+		// phpcs:ignore WordPress.DB.DirectDatabaseQuery.DirectQuery, WordPress.DB.DirectDatabaseQuery.NoCaching
+		$affected = $wpdb->query(
+			$wpdb->prepare(
+				"UPDATE {$table} SET status = 'cancelled', updated_at = %s WHERE status IN ('pending','processing')",
+				$now
+			)
+		);
+
+		wp_cache_delete( 'mopw_pending_count', 'mopw' );
+		delete_transient( 'mopw_batch_lock' );
+
+		return (int) $affected;
+	}
 }

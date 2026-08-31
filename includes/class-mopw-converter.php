@@ -17,7 +17,7 @@ class Mopw_Converter {
      * Converts a source image file to the target format.
      *
      * @param string $source_path   Absolute path to the source image.
-     * @param string $target_format 'webp' or 'png'.
+     * @param string $target_format 'webp', 'png', or 'jpeg'.
      * @param int    $quality       1-100.
      * @param bool   $strip_exif    Whether to strip metadata.
      * @return array {
@@ -35,9 +35,16 @@ class Mopw_Converter {
             );
         }
 
-        $target_format = in_array( $target_format, array( 'webp', 'png' ), true ) ? $target_format : 'webp';
+        $target_format = in_array( $target_format, array( 'webp', 'png', 'jpeg' ), true ) ? $target_format : 'webp';
         $quality       = max( 1, min( 100, (int) $quality ) );
         $dest_path     = Mopw_Media_Handler::build_converted_path( $source_path, $target_format );
+
+        // Avoid reading and writing the same path (can fail on some filesystems).
+        $same_path = ( realpath( $source_path ) && realpath( $source_path ) === realpath( $dest_path ) )
+            || ( $source_path === $dest_path );
+        if ( $same_path ) {
+            $dest_path = $source_path . '.mopw-tmp.' . $target_format;
+        }
 
         $engine = Mopw_Media_Handler::get_image_engine();
 
@@ -82,7 +89,6 @@ class Mopw_Converter {
         $result = $image->writeImage( $dest_path );
 
         $image->clear();
-        $image->destroy();
 
         if ( ! $result ) {
             return array(
@@ -148,6 +154,8 @@ class Mopw_Converter {
             // inverse of our 1-100 scale, so we convert it here.
             $png_quality = (int) round( ( 100 - $quality ) / 100 * 9 );
             $success     = imagepng( $source_image, $dest_path, $png_quality );
+        } elseif ( 'jpeg' === $target_format ) {
+            $success = imagejpeg( $source_image, $dest_path, $quality );
         }
 
         imagedestroy( $source_image );
