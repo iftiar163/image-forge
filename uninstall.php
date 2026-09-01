@@ -22,7 +22,7 @@ function mopw_uninstall_site() {
 	// Remove optimization flags and size meta from attachments.
 	// phpcs:ignore WordPress.DB.DirectDatabaseQuery.DirectQuery, WordPress.DB.DirectDatabaseQuery.NoCaching
 	$wpdb->query(
-		"DELETE FROM {$wpdb->postmeta} WHERE meta_key IN ('_mopw_optimized', '_mopw_original_size', '_mopw_new_size')"
+		"DELETE FROM {$wpdb->postmeta} WHERE meta_key IN ('_mopw_optimized', '_mopw_original_size', '_mopw_new_size', '_mopw_original_mime', '_mopw_backup_path')"
 	);
 
 	// Clear any leftover transients.

@@ -48,11 +48,21 @@ class Mopw_Optimizer {
 		// Always create a backup of the true original before any destructive
 		// operation (resize or convert), when the user has requested it.
 		if ( Mopw_Settings::get( 'keep_original' ) ) {
-			$backup_path = $source_path . '.mopw-bak';
+			$backup_path = wp_normalize_path( $source_path . '.mopw-bak' );
 			if ( ! file_exists( $backup_path ) ) {
-				if ( ! @copy( $source_path, $backup_path ) ) {
+				// Attempt backup copy with error reporting
+				$copy_result = @copy( $source_path, $backup_path );
+				if ( ! $copy_result || ! file_exists( $backup_path ) ) {
+					error_log( 'MOPW: Backup copy failed for ' . $attachment_id . '. Source: ' . $source_path . ', Backup: ' . $backup_path );
 					return array( 'success' => false, 'error' => __( 'Could not create backup copy.', 'webxperthub-media-optimizer' ) );
 				}
+			}
+			// Record exactly where the backup lives, so restore_original()
+			// never has to guess based on a filename that may change after
+			// format conversion (e.g. photo.jpg -> photo.webp).
+			$meta_result = update_post_meta( $attachment_id, '_mopw_backup_path', $backup_path );
+			if ( ! $meta_result ) {
+				error_log( 'MOPW: Failed to update backup path meta for ' . $attachment_id . '. Path: ' . $backup_path );
 			}
 		}
 
@@ -185,6 +195,9 @@ class Mopw_Optimizer {
 		$new_path = $result['path'];
 		$new_mime = ( 'webp' === $format ) ? 'image/webp' : 'image/png';
 
+		$original_mime = get_post_mime_type( $attachment_id );
+		update_post_meta( $attachment_id, '_mopw_original_mime', $original_mime );
+
 		update_attached_file( $attachment_id, $new_path );
 		wp_update_post(
 			array(
@@ -266,6 +279,98 @@ class Mopw_Optimizer {
 		wp_cache_delete( 'mopw_unoptimized_count', 'mopw' );
 
 		do_action( 'mopw_after_optimize', $attachment_id, $original_size, $new_size );
+
+		return array( 'success' => true );
+	}
+
+	/**
+	 * Restores an attachment to its pre-optimization state using the
+	 * .mopw-bak backup file. Reverses everything convert_and_replace()
+	 * did: file, mime type, and registered sizes.
+	 *
+	 * @param int $attachment_id
+	 * @return array{success:bool, error?:string}
+	 */
+
+	public static function restore_original( $attachment_id ) {
+
+		if ( '1' !== get_post_meta( $attachment_id, '_mopw_optimized', true ) ) {
+        	return array( 'success' => false, 'error' => __( 'This image was not optimized by this plugin.', 'webxperthub-media-optimizer' ) );
+		}
+
+		$current_path = Mopw_Media_Handler::get_file_path( $attachment_id );
+		if ( ! $current_path ) {
+			return array( 'success' => false, 'error' => __( 'Current file not found.', 'webxperthub-media-optimizer' ) );
+		}
+
+		$backup_path = wp_normalize_path( get_post_meta( $attachment_id, '_mopw_backup_path', true ) );
+
+		if ( ! $backup_path ) {
+			error_log( 'MOPW: Restore failed - no backup path meta for attachment ' . $attachment_id );
+			return array( 'success' => false, 'error' => __( 'No backup file found for this image.', 'webxperthub-media-optimizer' ) );
+		}
+
+		if ( ! file_exists( $backup_path ) ) {
+			error_log( 'MOPW: Restore failed - backup file does not exist: ' . $backup_path );
+			return array( 'success' => false, 'error' => __( 'No backup file found for this image.', 'webxperthub-media-optimizer' ) );
+		}
+
+		if ( ! Mopw_Media_Handler::is_path_safe( $backup_path ) ) {
+			return array( 'success' => false, 'error' => __( 'Backup path failed safety check.', 'webxperthub-media-optimizer' ) );
+		}
+
+		$original_mime = get_post_meta( $attachment_id, '_mopw_original_mime', true );
+
+		if ( $original_mime ) {
+			// Format was converted — restore under the ORIGINAL extension
+			// and mime type, since the current file has a different one.
+			$ext_map = array(
+				'image/jpeg' => 'jpg',
+				'image/png'  => 'png',
+				'image/webp' => 'webp',
+			);
+			$original_ext  = isset( $ext_map[ $original_mime ] ) ? $ext_map[ $original_mime ] : 'jpg';
+			$restored_path = Mopw_Media_Handler::build_converted_path( $current_path, $original_ext );
+
+			if ( ! @copy( $backup_path, $restored_path ) ) {
+				return array( 'success' => false, 'error' => __( 'Could not restore backup file.', 'webxperthub-media-optimizer' ) );
+			}
+
+			update_attached_file( $attachment_id, $restored_path );
+			wp_update_post( array(
+				'ID'             => $attachment_id,
+				'post_mime_type' => $original_mime,
+			) );
+
+			if ( $restored_path !== $current_path && file_exists( $current_path ) ) {
+				wp_delete_file( $current_path );
+			}
+		} else {
+			// Compress-only — same path, same mime, just overwrite the
+			// compressed bytes with the original backup bytes.
+			$restored_path = $current_path;
+
+			if ( ! @copy( $backup_path, $restored_path ) ) {
+				return array( 'success' => false, 'error' => __( 'Could not restore backup file.', 'webxperthub-media-optimizer' ) );
+			}
+		}
+
+		// Regenerate registered sizes from the restored file either way.
+		require_once ABSPATH . 'wp-admin/includes/image.php';
+		$metadata = wp_generate_attachment_metadata( $attachment_id, $restored_path );
+		wp_update_attachment_metadata( $attachment_id, $metadata );
+
+		wp_delete_file( $backup_path );
+		delete_post_meta( $attachment_id, '_mopw_optimized' );
+		delete_post_meta( $attachment_id, '_mopw_original_size' );
+		delete_post_meta( $attachment_id, '_mopw_new_size' );
+		delete_post_meta( $attachment_id, '_mopw_original_mime' );
+		delete_post_meta( $attachment_id, '_mopw_backup_path' );
+
+		clean_post_cache( $attachment_id );
+		wp_cache_delete( 'mopw_unoptimized_count', 'mopw' );
+
+		do_action( 'mopw_after_restore', $attachment_id );
 
 		return array( 'success' => true );
 	}

@@ -1,9 +1,3 @@
-/**
- * Media Optimizer by Webxperthub — Bulk Optimize admin UI.
- *
- * Wires the "Start Bulk Optimize" button to the queue AJAX endpoints
- * and drives the progress bar from real server-reported numbers only.
- */
 (function ($) {
   "use strict";
 
@@ -13,10 +7,6 @@
     var $progressWrap = $("#mopw-progress-wrap");
     var $progressBar = $("#mopw-progress-bar");
     var $progressText = $("#mopw-progress-text");
-
-    if (!$startButton.length) {
-      return;
-    }
 
     var i18n = (mopwAdmin && mopwAdmin.i18n) || {};
     var pollTimer = null;
@@ -38,192 +28,240 @@
       });
     }
 
-    function showMessage(message) {
-      $progressWrap.show();
-      $progressBar.hide();
-      $progressText.show().text(message);
-    }
-
-    function showProgress() {
-      $progressWrap.show();
-      $progressBar.show();
-      $cancelButton.show();
-    }
-
-    function resetToIdle() {
-      if (pollTimer) {
-        clearInterval(pollTimer);
-        pollTimer = null;
-      }
-      $startButton
-        .prop("disabled", false)
-        .text(t("startLabel", "Start Bulk Optimize"));
-      $cancelButton
-        .hide()
-        .prop("disabled", false)
-        .text(t("cancelLabel", "Cancel"));
-    }
-
-    $startButton.on("click", function () {
-      if (parseInt(mopwAdmin.unoptimizedCount, 10) === 0) {
-        showMessage(
-          t(
-            "noImages",
-            "No images to optimize — your media library is already up to date.",
-          ),
-        );
-        return;
+    // Everything Bulk-Optimize-specific is now scoped inside this
+    // guard, instead of the guard exiting the whole file. This runs
+    // ONLY on the Bulk Optimize page, where these elements exist.
+    if ($startButton.length) {
+      function showMessage(message) {
+        $progressWrap.show();
+        $progressBar.hide();
+        $progressText.show().text(message);
       }
 
-      $startButton
-        .prop("disabled", true)
-        .text(mopwAdmin.startingLabel || t("starting", "Starting…"));
+      function showProgress() {
+        $progressWrap.show();
+        $progressBar.show();
+        $cancelButton.show();
+      }
 
-      $.post(mopwAdmin.ajaxUrl, {
-        action: "mopw_start_bulk",
-        nonce: mopwAdmin.nonce,
-      })
-        .done(function (response) {
-          if (!response.success) {
-            resetToIdle();
-            showMessage(
-              (response.data && response.data.message) ||
-                t("somethingWrong", "Something went wrong."),
+      function resetToIdle() {
+        if (pollTimer) {
+          clearInterval(pollTimer);
+          pollTimer = null;
+        }
+        $startButton
+          .prop("disabled", false)
+          .text(t("startLabel", "Start Bulk Optimize"));
+        $cancelButton
+          .hide()
+          .prop("disabled", false)
+          .text(t("cancelLabel", "Cancel"));
+      }
+
+      $startButton.on("click", function () {
+        if (parseInt(mopwAdmin.unoptimizedCount, 10) === 0) {
+          showMessage(
+            t(
+              "noImages",
+              "No images to optimize — your media library is already up to date.",
+            ),
+          );
+          return;
+        }
+
+        $startButton
+          .prop("disabled", true)
+          .text(mopwAdmin.startingLabel || t("starting", "Starting…"));
+
+        $.post(mopwAdmin.ajaxUrl, {
+          action: "mopw_start_bulk",
+          nonce: mopwAdmin.nonce,
+        })
+          .done(function (response) {
+            if (!response.success) {
+              resetToIdle();
+              showMessage(
+                (response.data && response.data.message) ||
+                  t("somethingWrong", "Something went wrong."),
+              );
+              return;
+            }
+
+            totalQueuedAtStart = response.data.queued;
+
+            if (totalQueuedAtStart === 0) {
+              resetToIdle();
+              showMessage(
+                t(
+                  "noImages",
+                  "No images to optimize — your media library is already up to date.",
+                ),
+              );
+              return;
+            }
+
+            showProgress();
+            $progressBar.attr("max", totalQueuedAtStart).attr("value", 0);
+            $progressText.text(
+              sprintf(
+                t("queued", "Queued %d images. Processing…"),
+                totalQueuedAtStart,
+              ),
             );
-            return;
-          }
 
-          totalQueuedAtStart = response.data.queued;
-
-          if (totalQueuedAtStart === 0) {
+            pollTimer = setInterval(runNextBatch, 2000);
+            runNextBatch();
+          })
+          .fail(function () {
             resetToIdle();
             showMessage(
               t(
-                "noImages",
-                "No images to optimize — your media library is already up to date.",
+                "couldNotReach",
+                "Could not reach the server. Please try again.",
               ),
             );
-            return;
-          }
+          });
+      });
 
-          showProgress();
-          $progressBar.attr("max", totalQueuedAtStart).attr("value", 0);
-          $progressText.text(
-            sprintf(
-              t("queued", "Queued %d images. Processing…"),
-              totalQueuedAtStart,
-            ),
-          );
-
-          pollTimer = setInterval(runNextBatch, 2000);
-          runNextBatch();
-        })
-        .fail(function () {
-          resetToIdle();
-          showMessage(
+      $cancelButton.on("click", function () {
+        if (
+          !confirm(
             t(
-              "couldNotReach",
-              "Could not reach the server. Please try again.",
+              "cancelConfirm",
+              "Stop the current optimization run? Images already processed will keep their optimized version — only remaining images will be skipped.",
             ),
-          );
-        });
-    });
+          )
+        ) {
+          return;
+        }
 
-    $cancelButton.on("click", function () {
+        $cancelButton
+          .prop("disabled", true)
+          .text(t("cancelling", "Cancelling…"));
+
+        $.post(mopwAdmin.ajaxUrl, {
+          action: "mopw_cancel_bulk",
+          nonce: mopwAdmin.nonce,
+        })
+          .done(function () {
+            resetToIdle();
+            showMessage(
+              t(
+                "cancelled",
+                "Cancelled. Already-optimized images were kept; the rest were skipped.",
+              ),
+            );
+          })
+          .fail(function () {
+            $cancelButton
+              .prop("disabled", false)
+              .text(t("cancelLabel", "Cancel"));
+            alert(t("cancelFailed", "Could not cancel — please try again."));
+          });
+      });
+
+      function runNextBatch() {
+        if (isRequestInFlight) {
+          return;
+        }
+
+        isRequestInFlight = true;
+
+        $.post(mopwAdmin.ajaxUrl, {
+          action: "mopw_run_batch",
+          nonce: mopwAdmin.nonce,
+        })
+          .done(function (response) {
+            if (!response.success) {
+              resetToIdle();
+              showMessage(
+                (response.data && response.data.message) ||
+                  t("somethingWrong", "Something went wrong."),
+              );
+              return;
+            }
+
+            var stats = response.data;
+            var completed = totalQueuedAtStart - stats.remaining;
+
+            $progressBar.attr("value", Math.max(0, completed));
+            $progressText.text(
+              sprintf(
+                t(
+                  "processed",
+                  "Processed %1$d of %2$d (%3$d failed this batch)",
+                ),
+                completed,
+                totalQueuedAtStart,
+                stats.failed,
+              ),
+            );
+
+            if (stats.remaining <= 0) {
+              resetToIdle();
+              $progressText.text(
+                sprintf(
+                  t("done", "Done! %d images processed."),
+                  totalQueuedAtStart,
+                ),
+              );
+            }
+          })
+          .fail(function () {
+            $progressText.text(
+              t("retrying", "Lost connection during processing. Retrying…"),
+            );
+          })
+          .always(function () {
+            isRequestInFlight = false;
+          });
+      }
+    }
+
+    // --- Restore Original (Media Library list view) ---
+    // Deliberately OUTSIDE the $startButton guard above, since this
+    // needs to work on the Media Library page (upload.php), where
+    // #mopw-start-bulk does not exist at all.
+    $(document).on("click", ".mopw-restore-link", function (e) {
+      e.preventDefault();
+
+      var $link = $(this);
+      var attachmentId = $link.data("attachment-id");
+      var nonce = $link.data("nonce");
+
       if (
         !confirm(
-          t(
-            "cancelConfirm",
-            "Stop the current optimization run? Images already processed will keep their optimized version — only remaining images will be skipped.",
-          ),
+          "Restore the original image? This will replace the current optimized version.",
         )
       ) {
         return;
       }
 
-      $cancelButton
-        .prop("disabled", true)
-        .text(t("cancelling", "Cancelling…"));
+      var originalText = $link.text();
+      $link.text("Restoring…");
 
-      $.post(mopwAdmin.ajaxUrl, {
-        action: "mopw_cancel_bulk",
-        nonce: mopwAdmin.nonce,
-      })
-        .done(function () {
-          resetToIdle();
-          showMessage(
-            t(
-              "cancelled",
-              "Cancelled. Already-optimized images were kept; the rest were skipped.",
-            ),
-          );
-        })
-        .fail(function () {
-          $cancelButton
-            .prop("disabled", false)
-            .text(t("cancelLabel", "Cancel"));
-          alert(t("cancelFailed", "Could not cancel — please try again."));
-        });
-    });
-
-    function runNextBatch() {
-      if (isRequestInFlight) {
-        return;
-      }
-
-      isRequestInFlight = true;
-
-      $.post(mopwAdmin.ajaxUrl, {
-        action: "mopw_run_batch",
-        nonce: mopwAdmin.nonce,
+      $.post(ajaxurl, {
+        action: "mopw_restore_original",
+        attachment_id: attachmentId,
+        nonce: nonce,
       })
         .done(function (response) {
-          if (!response.success) {
-            resetToIdle();
-            showMessage(
-              (response.data && response.data.message) ||
-                t("somethingWrong", "Something went wrong."),
+          if (response.success) {
+            $link.closest("tr").fadeOut(200, function () {
+              location.reload();
+            });
+          } else {
+            alert(
+              "Could not restore: " +
+                ((response.data && response.data.message) || "Unknown error."),
             );
-            return;
-          }
-
-          var stats = response.data;
-          var completed = totalQueuedAtStart - stats.remaining;
-
-          $progressBar.attr("value", Math.max(0, completed));
-          $progressText.text(
-            sprintf(
-              t(
-                "processed",
-                "Processed %1$d of %2$d (%3$d failed this batch)",
-              ),
-              completed,
-              totalQueuedAtStart,
-              stats.failed,
-            ),
-          );
-
-          if (stats.remaining <= 0) {
-            resetToIdle();
-            $progressText.text(
-              sprintf(
-                t("done", "Done! %d images processed."),
-                totalQueuedAtStart,
-              ),
-            );
+            $link.text(originalText);
           }
         })
         .fail(function () {
-          $progressText.text(
-            t(
-              "retrying",
-              "Lost connection during processing. Retrying…",
-            ),
-          );
-        })
-        .always(function () {
-          isRequestInFlight = false;
+          alert("Could not reach the server. Please try again.");
+          $link.text(originalText);
         });
-    }
+    });
   });
 })(jQuery);

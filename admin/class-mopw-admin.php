@@ -34,10 +34,62 @@ class Mopw_Admin {
 		add_action( 'wp_ajax_mopw_run_batch', array( $this, 'ajax_run_batch' ) );
 		add_action( 'wp_ajax_mopw_cancel_bulk', array( $this, 'ajax_cancel_bulk' ) );
 
+		add_filter( 'media_row_actions', array( $this, 'add_restore_row_action'), 10, 2 );
+		add_action( 'wp_ajax_mopw_restore_original', array( $this, 'ajax_restore_original' ) );
+		
 		add_filter(
 			'plugin_action_links_' . plugin_basename( MOPW_PLUGIN_DIR . 'webxperthub-media-optimizer.php' ),
 			array( $this, 'add_settings_link' )
 		);
+	}
+
+	/**
+	 * Adds a "Restore Original" link to the Media Library list view row actions for optimized images.
+	 *
+	 * @param array   $actions Existing row actions.
+	 * @param WP_Post $post    The attachment post.
+	 * @return array
+	 */
+
+	public function add_restore_row_action( $actions, $post ) {
+
+		if( '1' !== get_post_meta( $post->ID, '_mopw_optimized', true ) ) {
+			return $actions;
+		}
+
+		$nonce = wp_create_nonce( 'mopw_restore_' . $post->ID );
+
+		$actions['mopw_restore'] = sprintf(
+			'<a href="#" class="mopw-restore-link" data-attachment-id="%1$d" data-nonce="%2$s">%3$s</a>',
+			(int) $post->ID,
+			esc_attr( $nonce ),
+			esc_html__( 'Restore Original', 'webxperthub-media-optimizer' )
+    	);
+
+		return $actions;
+	}
+
+	/**
+	 * AJAX: restores a single attachment to its pre-optimization state.
+	 */
+	public function ajax_restore_original() {
+
+		$attachment_id = isset( $_POST['attachment_id'] ) ? absint( $_POST['attachment_id'] ) : 0;
+
+		check_ajax_referer( 'mopw_restore_' . $attachment_id, 'nonce' );
+
+		if( ! current_user_can( 'edit_post', $attachment_id ) ) {
+			wp_send_json_error( array( 'message' => __( 'Permission denied.', 'webxperthub-media-optimizer' ) ), 403 );
+		}
+
+		$result = Mopw_Optimizer::restore_original( $attachment_id );
+
+		if( ! $result['success'] ) {
+			wp_send_json_error( array( 'message' => $result['error'] ) );
+		}
+
+		wp_send_json_success( array( 'message' => __( 'Original image restored successfully.', 'webxperthub-media-optimizer' ) ) );
+
 	}
 
 	/**
@@ -92,7 +144,10 @@ class Mopw_Admin {
 	}
 
 	public function enqueue_assets( $hook ) {
-		if ( ! in_array( $hook, array( $this->settings_hook, $this->bulk_hook ), true ) ) {
+		
+		$our_pages = array( $this->settings_hook, $this->bulk_hook, 'upload.php' );
+
+		if( ! in_array( $hook, $our_pages, true ) ) {
 			return;
 		}
 
