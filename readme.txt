@@ -4,7 +4,7 @@ Tags:              images, optimize, compress, webp, performance
 Requires at least: 6.3
 Tested up to:      7.0
 Requires PHP:      7.4
-Stable tag:        1.0.0
+Stable tag:        1.0.1
 License:           GPLv2 or later
 License URI:       https://www.gnu.org/licenses/gpl-2.0.html
 
@@ -104,10 +104,15 @@ JPEG and PNG sources are supported. Output can be WebP, PNG, or the original for
 
 == Changelog ==
 
+= 1.0.1 =
+* Improved compatibility and polish for the initial public release
+* Refined WordPress.org plugin metadata and release documentation
+* Updated upgrade notice and public listing details for a cleaner submission package
+
 = 1.0.0 =
 * Initial release
 
 == Upgrade Notice ==
 
-= 1.0.0 =
-Initial release
+= 1.0.1 =
+Compatibility and publishing polish for the initial public release.
