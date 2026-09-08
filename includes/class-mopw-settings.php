@@ -29,7 +29,12 @@ class Mopw_Settings {
     private static $defaults = array(
         'enabled'              => true,   // Master on/off switch
         'auto_optimize'        => true,   // Optimize automatically on upload
-        'output_format'        => 'webp', // webp | png | original
+        // Defaults to 'original' (compress in place, same filename/extension)
+        // rather than 'webp', because converting format changes the file's
+        // extension/URL — any post content, widgets, or external links that
+        // already reference the old URL will 404. Users who understand that
+        // trade-off can opt into 'webp'/'png' from Settings.
+        'output_format'        => 'original', // webp | png | original
         'quality'              => 82,     // 1-100, compression quality
         'keep_original'        => true,   // Keep the original file as backup
         'resize_large_images'  => true,   // Downscale oversized uploads

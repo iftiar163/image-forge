@@ -36,6 +36,7 @@ class Mopw_Admin {
 
 		add_filter( 'media_row_actions', array( $this, 'add_restore_row_action'), 10, 2 );
 		add_action( 'wp_ajax_mopw_restore_original', array( $this, 'ajax_restore_original' ) );
+		add_action( 'wp_ajax_mopw_reoptimize', array( $this, 'ajax_reoptimize' ) );
 		
 		add_filter(
 			'plugin_action_links_' . plugin_basename( MOPW_PLUGIN_DIR . 'webxperthub-media-optimizer.php' ),
@@ -57,14 +58,22 @@ class Mopw_Admin {
 			return $actions;
 		}
 
-		$nonce = wp_create_nonce( 'mopw_restore_' . $post->ID );
+		$restore_nonce    = wp_create_nonce( 'mopw_restore_' . $post->ID );
+		$reoptimize_nonce = wp_create_nonce( 'mopw_reoptimize_' . $post->ID );
 
 		$actions['mopw_restore'] = sprintf(
 			'<a href="#" class="mopw-restore-link" data-attachment-id="%1$d" data-nonce="%2$s">%3$s</a>',
 			(int) $post->ID,
-			esc_attr( $nonce ),
+			esc_attr( $restore_nonce ),
 			esc_html__( 'Restore Original', 'webxperthub-media-optimizer' )
     	);
+
+		$actions['mopw_reoptimize'] = sprintf(
+			'<a href="#" class="mopw-reoptimize-link" data-attachment-id="%1$d" data-nonce="%2$s">%3$s</a>',
+			(int) $post->ID,
+			esc_attr( $reoptimize_nonce ),
+			esc_html__( 'Re-optimize', 'webxperthub-media-optimizer' )
+		);
 
 		return $actions;
 	}
@@ -90,6 +99,28 @@ class Mopw_Admin {
 
 		wp_send_json_success( array( 'message' => __( 'Original image restored successfully.', 'webxperthub-media-optimizer' ) ) );
 
+	}
+
+	/**
+	 * AJAX: re-optimizes a single attachment using current settings.
+	 */
+	public function ajax_reoptimize() {
+
+		$attachment_id = isset( $_POST['attachment_id'] ) ? absint( $_POST['attachment_id'] ) : 0;
+
+		check_ajax_referer( 'mopw_reoptimize_' . $attachment_id, 'nonce' );
+
+		if ( ! current_user_can( 'edit_post', $attachment_id ) ) {
+			wp_send_json_error( array( 'message' => __( 'Permission denied.', 'webxperthub-media-optimizer' ) ), 403 );
+		}
+
+		$result = Mopw_Optimizer::reoptimize( $attachment_id );
+
+		if ( ! $result['success'] ) {
+			wp_send_json_error( array( 'message' => $result['error'] ) );
+		}
+
+		wp_send_json_success( array( 'message' => __( 'Image re-optimized successfully.', 'webxperthub-media-optimizer' ) ) );
 	}
 
 	/**
@@ -241,9 +272,9 @@ class Mopw_Admin {
 	public function field_select_format() {
 		$current = Mopw_Settings::get( 'output_format' );
 		$options = array(
-			'webp'     => __( 'WebP (recommended)', 'webxperthub-media-optimizer' ),
-			'png'      => __( 'PNG', 'webxperthub-media-optimizer' ),
-			'original' => __( 'Keep Original Format (compress only)', 'webxperthub-media-optimizer' ),
+			'original' => __( 'Keep Original Format (compress only, recommended)', 'webxperthub-media-optimizer' ),
+			'webp'     => __( 'Convert to WebP', 'webxperthub-media-optimizer' ),
+			'png'      => __( 'Convert to PNG', 'webxperthub-media-optimizer' ),
 		);
 
 		echo '<select name="' . esc_attr( MOPW_OPTION_KEY ) . '[output_format]">';
@@ -256,6 +287,7 @@ class Mopw_Admin {
 			);
 		}
 		echo '</select>';
+		echo '<p class="description">' . esc_html__( 'Converting format changes the file extension/URL. Any content that already links directly to the old file (rather than through WordPress\'s own image tags) may break. "Keep Original Format" avoids this.', 'webxperthub-media-optimizer' ) . '</p>';
 	}
 
 	public function field_quality_slider() {
@@ -282,7 +314,7 @@ class Mopw_Admin {
 		$valid_formats          = array( 'webp', 'png', 'original' );
 		$clean['output_format'] = in_array( $input['output_format'] ?? '', $valid_formats, true )
 			? $input['output_format']
-			: 'webp';
+			: 'original';
 
 		$clean['quality']    = max( 1, min( 100, (int) ( $input['quality'] ?? 82 ) ) );
 		$clean['max_width']  = max( 100, (int) ( $input['max_width'] ?? 2560 ) );

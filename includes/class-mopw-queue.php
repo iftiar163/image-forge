@@ -104,6 +104,25 @@ class Mopw_Queue {
 		}
 		set_transient( $lock_key, 1, 60 );
 
+		// Recover rows stuck in 'processing'. A PHP fatal (out-of-memory,
+		// a segfaulting Imagick call, a host killing a long-running
+		// request) can kill this whole process between "claim" and
+		// "mark done/failed" below, leaving a row stuck at 'processing'
+		// forever — invisible to count_pending() and never retried.
+		// Anything still 'processing' after a generous stale window is
+		// almost certainly an orphan from a crashed run, so put it back
+		// in the queue.
+		$stale_minutes = (int) apply_filters( 'mopw_stale_processing_minutes', 5 );
+		// phpcs:ignore WordPress.DB.DirectDatabaseQuery.DirectQuery, WordPress.DB.DirectDatabaseQuery.NoCaching
+		$wpdb->query(
+			$wpdb->prepare(
+				"UPDATE {$table} SET status = 'pending', updated_at = %s
+				WHERE status = 'processing' AND updated_at < %s",
+				current_time( 'mysql' ),
+				gmdate( 'Y-m-d H:i:s', current_time( 'timestamp' ) - ( $stale_minutes * MINUTE_IN_SECONDS ) ) // phpcs:ignore WordPress.DateTime.CurrentTimeTimestamp.Requested
+			)
+		);
+
 		$time_budget_seconds = (float) apply_filters( 'mopw_batch_time_budget', 20 );
 		$start_time          = microtime( true );
 
@@ -262,17 +281,34 @@ class Mopw_Queue {
 	 */
 	public function enqueue_all_unoptimized( $chunk_size = 200 ) {
 		$chunk_size = max( 50, min( 500, (int) $chunk_size ) );
-		$offset     = 0;
 		$total      = 0;
 
+		// Cursor (ID > $last_id) instead of OFFSET pagination. OFFSET
+		// forces MySQL to walk and discard every prior row on each page,
+		// which gets very slow on large media libraries (tens of
+		// thousands of attachments) — exactly the scale this bulk tool
+		// targets. An indexed "ID > last seen" WHERE clause stays fast
+		// regardless of how many pages precede it.
+		$last_id = 0;
+
 		do {
+			// WP_Query has no native "ID > X" param, so apply it via a
+			// filter scoped to just this one query instance (added right
+			// before the query and removed right after).
+			$where_cb = function ( $where ) use ( $last_id ) {
+				global $wpdb;
+				return $where . $wpdb->prepare( " AND {$wpdb->posts}.ID > %d", $last_id );
+			};
+			add_filter( 'posts_where', $where_cb );
+
 			$query = new WP_Query(
 				array(
 					'post_type'              => 'attachment',
 					'post_status'            => 'inherit',
 					'post_mime_type'         => (array) Mopw_Settings::get( 'allowed_mime_types' ),
 					'posts_per_page'         => $chunk_size,
-					'offset'                 => $offset,
+					'orderby'                => 'ID',
+					'order'                  => 'ASC',
 					'fields'                 => 'ids',
 					'no_found_rows'          => true,
 					'update_post_meta_cache' => false,
@@ -286,15 +322,17 @@ class Mopw_Queue {
 				)
 			);
 
+			remove_filter( 'posts_where', $where_cb );
+
 			$ids = $query->posts;
 			foreach ( $ids as $attachment_id ) {
 				if ( $this->enqueue( $attachment_id ) ) {
 					$total++;
 				}
+				$last_id = max( $last_id, (int) $attachment_id );
 			}
 
 			$fetched = count( $ids );
-			$offset += $chunk_size;
 
 		} while ( $fetched === $chunk_size );
 

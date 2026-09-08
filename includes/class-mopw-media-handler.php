@@ -15,6 +15,16 @@ if ( ! defined( 'ABSPATH' ) ) {
 class Mopw_Media_Handler {
 
     /**
+     * Request-level cache for the detected image engine, so we don't
+     * re-instantiate Imagick / re-run queryFormats() on every single
+     * call — this used to be called once per attachment PLUS once per
+     * intermediate size, which is wasteful at bulk scale.
+     *
+     * @var string|null
+     */
+    private static $engine_cache = null;
+
+    /**
      * Returns the absolute file path for an attachment, or false if
      * it doesn't exist on disk or isn't a real image attachment.
      *
@@ -119,18 +129,22 @@ class Mopw_Media_Handler {
      * @return string 'imagick' | 'gd' | 'none'
      */
     public static function get_image_engine() {
+        if ( null !== self::$engine_cache ) {
+            return self::$engine_cache;
+        }
+
         if ( extension_loaded( 'imagick' ) && class_exists( 'Imagick' ) ) {
             $imagick_formats = ( new Imagick() )->queryFormats( 'WEBP' );
             if ( ! empty( $imagick_formats ) ) {
-                return 'imagick';
+                return self::$engine_cache = 'imagick';
             }
         }
 
         if ( extension_loaded( 'gd' ) && function_exists( 'imagewebp' ) ) {
-            return 'gd';
+            return self::$engine_cache = 'gd';
         }
 
-        return 'none';
+        return self::$engine_cache = 'none';
     }
 
     /**
@@ -149,5 +163,115 @@ class Mopw_Media_Handler {
         }
 
         return $bytes . ' B';
+    }
+
+    /**
+     * Confirms a path is inside our protected backup directory
+     * specifically (a stricter check than is_path_safe(), which only
+     * confirms "somewhere under uploads"). Used before any read/delete
+     * of a stored backup file.
+     *
+     * @param string $path
+     * @return bool
+     */
+    public static function is_backup_path_safe( $path ) {
+        $backup_dir = self::get_backup_dir();
+
+        if ( '' === $backup_dir ) {
+            return false;
+        }
+
+        $real_path = realpath( $path );
+        $real_base = realpath( $backup_dir );
+
+        if ( false === $real_path || false === $real_base ) {
+            return false;
+        }
+
+        return 0 === strpos( $real_path . DIRECTORY_SEPARATOR, $real_base . DIRECTORY_SEPARATOR );
+    }
+
+    /**
+     * Deletes every registered intermediate-size file listed in a
+     * previously-saved attachment metadata array. Used before we
+     * overwrite metadata with a freshly (re)generated set, so that
+     * old-format/old-size files don't pile up as orphans on disk.
+     *
+     * Safe to call with empty/missing metadata — it just no-ops.
+     *
+     * @param string $base_dir Absolute directory the sizes live in (with trailing slash).
+     * @param array  $metadata Attachment metadata (the 'sizes' key is what we need).
+     */
+    public static function delete_registered_sizes( $base_dir, $metadata ) {
+        if ( empty( $metadata['sizes'] ) || ! is_array( $metadata['sizes'] ) ) {
+            return;
+        }
+
+        foreach ( $metadata['sizes'] as $size_data ) {
+            if ( empty( $size_data['file'] ) ) {
+                continue;
+            }
+
+            $path = $base_dir . $size_data['file'];
+
+            if ( self::is_path_safe( $path ) && file_exists( $path ) ) {
+                wp_delete_file( $path );
+            }
+        }
+    }
+
+    /**
+     * Directory (inside uploads) where original-file backups are kept.
+     * Kept out of the regular year/month upload folders and away from
+     * predictable "same name as the live file" URLs — see is_backup_dir_protected().
+     *
+     * @return string Absolute path, no trailing slash. Empty string on failure.
+     */
+    public static function get_backup_dir() {
+        $upload_dir = wp_upload_dir();
+
+        if ( ! empty( $upload_dir['error'] ) || empty( $upload_dir['basedir'] ) ) {
+            return '';
+        }
+
+        return trailingslashit( $upload_dir['basedir'] ) . 'mopw-backups';
+    }
+
+    /**
+     * Ensures the backup directory exists and is protected from direct
+     * web access (Apache via .htaccess, plus an index.php against
+     * directory listing on any server). Idempotent — safe to call often.
+     *
+     * @return bool
+     */
+    public static function ensure_backup_dir_protected() {
+        $dir = self::get_backup_dir();
+
+        if ( '' === $dir ) {
+            return false;
+        }
+
+        if ( ! file_exists( $dir ) ) {
+            wp_mkdir_p( $dir );
+        }
+
+        $htaccess = $dir . '/.htaccess';
+        if ( ! file_exists( $htaccess ) ) {
+            // "Require all denied" (Apache 2.4) with the 2.2 fallback covers
+            // the vast majority of hosts; servers not using Apache at all
+            // (e.g. Nginx) are unaffected by this file either way — those
+            // hosts should instead rely on the unguessable directory name.
+            @file_put_contents(
+                $htaccess,
+                "<IfModule mod_authz_core.c>\nRequire all denied\n</IfModule>\n<IfModule !mod_authz_core.c>\nDeny from all\n</IfModule>\n"
+            );
+        }
+
+        $index = $dir . '/index.php';
+        if ( ! file_exists( $index ) ) {
+            @file_put_contents( $index, "<?php\n// Silence is golden.\n" );
+        }
+
+        return true;
     }
 }

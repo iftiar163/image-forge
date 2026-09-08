@@ -42,15 +42,21 @@ class Mopw_Core {
 
     public function handle_attachment_deleted( $attachment_id ) {
 
-        $file_path = get_attached_file( $attachment_id );
+        // Backups now live in the protected uploads/mopw-backups/ folder
+        // under a random filename (see Mopw_Optimizer::create_backup()),
+        // recorded via '_mopw_backup_path' postmeta — not derived from
+        // the live file's own path anymore, so we look it up directly
+        // rather than guessing a "<file>.mopw-bak" suffix that no longer
+        // matches how backups are actually named.
+        $backup_path = get_post_meta( $attachment_id, '_mopw_backup_path', true );
 
-        if ( ! $file_path ) {
+        if ( ! $backup_path ) {
             return;
         }
 
-        $backup_path = $file_path . '.mopw-bak';
+        $backup_path = wp_normalize_path( $backup_path );
 
-        if ( Mopw_Media_Handler::is_path_safe( $backup_path ) && file_exists( $backup_path ) ) {
+        if ( Mopw_Media_Handler::is_backup_path_safe( $backup_path ) && file_exists( $backup_path ) ) {
             wp_delete_file( $backup_path );
         }
 

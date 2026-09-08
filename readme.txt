@@ -4,7 +4,7 @@ Tags:              images, optimize, compress, webp, performance
 Requires at least: 6.3
 Tested up to:      7.0
 Requires PHP:      7.4
-Stable tag:        1.0.1
+Stable tag:        1.1.0
 License:           GPLv2 or later
 License URI:       https://www.gnu.org/licenses/gpl-2.0.html
 
@@ -79,11 +79,15 @@ No. Webxperthub Media Optimizer uses your server's own Imagick or GD library to 
 
 = What happens to my original images? =
 
-By default, Webxperthub Media Optimizer keeps a backup copy of your original file (with a `.mopw-bak` extension) alongside the optimized version. You can disable this in Settings if you don't need it.
+By default, Webxperthub Media Optimizer keeps a backup copy of your original file in a protected `uploads/mopw-backups/` folder (not web-accessible, and not guessable from the live file's URL) alongside the optimized version. You can disable this in Settings if you don't need it.
 
 = Does deleting the plugin remove my backup files? =
 
-No. Uninstalling Webxperthub Media Optimizer removes its settings and internal processing queue, but does not scan your uploads folder for `.mopw-bak` files, to avoid a slow or timed-out uninstall on large media libraries. If you want to remove them, you can safely delete any file ending in `.mopw-bak` from your uploads folder.
+Yes. Uninstalling Webxperthub Media Optimizer removes every backup file it created, along with its settings and internal processing queue.
+
+= Will converting to WebP break links to my images elsewhere? =
+
+If you choose to convert format (WebP/PNG), the file's extension changes — so any content that links directly to the old file's URL (rather than through WordPress's own image blocks/shortcodes, which are updated automatically) may break. This is why the default output mode is "Keep Original Format" (compress only, same filename). Switch to WebP/PNG conversion only if you understand this trade-off.
 
 = Will this slow down my server when bulk-optimizing thousands of images? =
 
@@ -104,6 +108,17 @@ JPEG and PNG sources are supported. Output can be WebP, PNG, or the original for
 
 == Changelog ==
 
+= 1.1.0 =
+* Default output format changed to "Keep Original Format" (compress-only) — converting to WebP/PNG changes the file's URL and could break existing links to it, so that behavior is now opt-in rather than default.
+* Original-file backups moved to a protected, non-guessable `uploads/mopw-backups/` folder instead of a predictable `<file>.mopw-bak` name next to the live file (which was directly web-accessible).
+* Fixed: old-format/old-size thumbnail files were left behind (orphaned) after converting an image's format or restoring an original — they are now cleaned up.
+* Fixed: uninstalling now removes backup files and internal run-state options that were previously left behind.
+* Fixed: a queue item could get stuck indefinitely if PHP crashed mid-optimization (e.g. out-of-memory on a very large photo); stuck items are now automatically recovered and retried.
+* Fixed: large images are now processed with a raised memory limit to reduce the chance of that crash happening in the first place.
+* Fixed: a JavaScript error could silently break the "Restore Original" link in the Media Library while a bulk run was in progress.
+* Performance: bulk-queuing your whole media library now uses indexed cursor-based pagination instead of OFFSET, which is significantly faster on large libraries.
+* Performance: image-processing engine detection (Imagick/GD) is now cached per request instead of being re-run for every image size.
+
 = 1.0.1 =
 * Improved compatibility and polish for the initial public release
 * Refined WordPress.org plugin metadata and release documentation
@@ -113,6 +128,9 @@ JPEG and PNG sources are supported. Output can be WebP, PNG, or the original for
 * Initial release
 
 == Upgrade Notice ==
+
+= 1.1.0 =
+Important fixes: safer default (no more broken image links on format conversion), protected backup storage, cleanup of orphaned files, and a stuck-queue-item recovery fix. Recommended for all users.
 
 = 1.0.1 =
 Compatibility and publishing polish for the initial public release.

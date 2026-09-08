@@ -43,26 +43,29 @@ class Mopw_Optimizer {
 			return array( 'success' => false, 'error' => __( 'Source file not found.', 'webxperthub-media-optimizer' ) );
 		}
 
+		// Large photos (20-40MP+) can blow past the default PHP memory_limit
+		// inside Imagick/GD, causing a hard fatal that no try/catch inside
+		// this request can stop. Ask WordPress for its "image" memory
+		// ceiling (filterable via image_memory_limit) before touching any
+		// image data, to make that fatal far less likely.
+		wp_raise_memory_limit( 'image' );
+
+		// Some hosts cap script execution independently of our own batch
+		// time budget. 0 = unlimited; many hosts disable set_time_limit()
+		// entirely in safe-mode-like configs, so this is best-effort and
+		// silenced so it never throws a warning that derails processing.
+		if ( function_exists( 'set_time_limit' ) ) {
+			@set_time_limit( 0 ); // phpcs:ignore WordPress.PHP.DiscouragedPHPFunctions.runtime_configuration_set_time_limit
+		}
+
 		$original_size = Mopw_Media_Handler::get_file_size( $source_path );
 
 		// Always create a backup of the true original before any destructive
 		// operation (resize or convert), when the user has requested it.
 		if ( Mopw_Settings::get( 'keep_original' ) ) {
-			$backup_path = wp_normalize_path( $source_path . '.mopw-bak' );
-			if ( ! file_exists( $backup_path ) ) {
-				// Attempt backup copy with error reporting
-				$copy_result = @copy( $source_path, $backup_path );
-				if ( ! $copy_result || ! file_exists( $backup_path ) ) {
-					error_log( 'MOPW: Backup copy failed for ' . $attachment_id . '. Source: ' . $source_path . ', Backup: ' . $backup_path );
-					return array( 'success' => false, 'error' => __( 'Could not create backup copy.', 'webxperthub-media-optimizer' ) );
-				}
-			}
-			// Record exactly where the backup lives, so restore_original()
-			// never has to guess based on a filename that may change after
-			// format conversion (e.g. photo.jpg -> photo.webp).
-			$meta_result = update_post_meta( $attachment_id, '_mopw_backup_path', $backup_path );
-			if ( ! $meta_result ) {
-				error_log( 'MOPW: Failed to update backup path meta for ' . $attachment_id . '. Path: ' . $backup_path );
+			$backup_result = self::create_backup( $attachment_id, $source_path );
+			if ( ! $backup_result['success'] ) {
+				return $backup_result;
 			}
 		}
 
@@ -87,6 +90,57 @@ class Mopw_Optimizer {
 		}
 
 		return self::convert_and_replace( $attachment_id, $source_path, $args['format'], $args['quality'], $original_size );
+	}
+
+	/**
+	 * Copies the true original into a protected, unpredictably-named
+	 * backup location and records where it lives in postmeta.
+	 *
+	 * Previously this wrote "<file>.mopw-bak" next to the live file —
+	 * directly web-accessible at a guessable URL, which defeated the
+	 * point of stripping EXIF/GPS data from the public copy. Backups now
+	 * live in an .htaccess-protected uploads/mopw-backups/ folder under
+	 * a random, non-guessable filename.
+	 *
+	 * @param int    $attachment_id
+	 * @param string $source_path
+	 * @return array{success:bool, error?:string}
+	 */
+	private static function create_backup( $attachment_id, $source_path ) {
+
+		// Reuse an existing backup if one's already recorded and present —
+		// don't overwrite a true original with an already-optimized copy
+		// on a re-run.
+		$existing_backup = get_post_meta( $attachment_id, '_mopw_backup_path', true );
+		if ( $existing_backup && file_exists( $existing_backup ) && Mopw_Media_Handler::is_backup_path_safe( $existing_backup ) ) {
+			return array( 'success' => true );
+		}
+
+		if ( ! Mopw_Media_Handler::ensure_backup_dir_protected() ) {
+			error_log( 'MOPW: Could not create/protect backup directory for attachment ' . $attachment_id );
+			return array( 'success' => false, 'error' => __( 'Could not prepare backup directory.', 'webxperthub-media-optimizer' ) );
+		}
+
+		$backup_dir  = Mopw_Media_Handler::get_backup_dir();
+		$ext         = pathinfo( $source_path, PATHINFO_EXTENSION );
+		$random_name = $attachment_id . '-' . wp_generate_password( 20, false, false ) . ( $ext ? '.' . $ext : '' );
+		$backup_path = wp_normalize_path( trailingslashit( $backup_dir ) . $random_name );
+
+		$copy_result = @copy( $source_path, $backup_path );
+		if ( ! $copy_result || ! file_exists( $backup_path ) ) {
+			error_log( 'MOPW: Backup copy failed for ' . $attachment_id . '. Source: ' . $source_path . ', Backup: ' . $backup_path );
+			return array( 'success' => false, 'error' => __( 'Could not create backup copy.', 'webxperthub-media-optimizer' ) );
+		}
+
+		// Record exactly where the backup lives, so restore_original()
+		// never has to guess based on a filename that may change after
+		// format conversion (e.g. photo.jpg -> photo.webp).
+		$meta_result = update_post_meta( $attachment_id, '_mopw_backup_path', $backup_path );
+		if ( ! $meta_result ) {
+			error_log( 'MOPW: Failed to update backup path meta for ' . $attachment_id . '. Path: ' . $backup_path );
+		}
+
+		return array( 'success' => true );
 	}
 
 	/**
@@ -167,6 +221,9 @@ class Mopw_Optimizer {
 			$final_path = $source_path;
 		}
 
+		// Same filename/extension throughout, so the old intermediate
+		// sizes are simply overwritten in place by wp_generate_attachment_metadata()
+		// below — no orphaned files to clean up in the compress-only path.
 		require_once ABSPATH . 'wp-admin/includes/image.php';
 		$metadata = wp_generate_attachment_metadata( $attachment_id, $final_path );
 		wp_update_attachment_metadata( $attachment_id, $metadata );
@@ -198,6 +255,14 @@ class Mopw_Optimizer {
 		$original_mime = get_post_mime_type( $attachment_id );
 		update_post_meta( $attachment_id, '_mopw_original_mime', $original_mime );
 
+		// The attachment is changing filename/extension (photo.jpg ->
+		// photo.webp), so its OLD registered intermediate sizes
+		// (photo-150x150.jpg etc.) will become orphaned once new ones are
+		// generated under the new extension. Capture the old metadata now
+		// so we can delete those old size files after the new ones exist.
+		$old_metadata = wp_get_attachment_metadata( $attachment_id );
+		$old_base_dir = trailingslashit( dirname( $source_path ) );
+
 		update_attached_file( $attachment_id, $new_path );
 		wp_update_post(
 			array(
@@ -212,6 +277,11 @@ class Mopw_Optimizer {
 
 		// Re-encode intermediate sizes at the configured quality.
 		self::optimize_intermediate_sizes( $attachment_id, $metadata, $format, $quality );
+
+		// Now that the new-format sizes exist and metadata points to them,
+		// it's safe to remove the old-format size files so they don't sit
+		// around as orphaned disk usage forever.
+		Mopw_Media_Handler::delete_registered_sizes( $old_base_dir, $old_metadata );
 
 		if ( $new_path !== $source_path && file_exists( $source_path ) ) {
 			wp_delete_file( $source_path );
@@ -285,8 +355,9 @@ class Mopw_Optimizer {
 
 	/**
 	 * Restores an attachment to its pre-optimization state using the
-	 * .mopw-bak backup file. Reverses everything convert_and_replace()
-	 * did: file, mime type, and registered sizes.
+	 * backup file. Reverses everything convert_and_replace() did: file,
+	 * mime type, and registered sizes — including cleaning up the
+	 * optimized-format size files so they don't linger as orphans.
 	 *
 	 * @param int $attachment_id
 	 * @return array{success:bool, error?:string}
@@ -315,9 +386,16 @@ class Mopw_Optimizer {
 			return array( 'success' => false, 'error' => __( 'No backup file found for this image.', 'webxperthub-media-optimizer' ) );
 		}
 
-		if ( ! Mopw_Media_Handler::is_path_safe( $backup_path ) ) {
+		if ( ! Mopw_Media_Handler::is_backup_path_safe( $backup_path ) ) {
 			return array( 'success' => false, 'error' => __( 'Backup path failed safety check.', 'webxperthub-media-optimizer' ) );
 		}
+
+		// Capture the currently-registered (optimized-format) sizes so we
+		// can delete them once the restore's fresh metadata is in place —
+		// otherwise e.g. photo-150x150.webp lingers forever after restoring
+		// back to photo-150x150.jpg.
+		$old_metadata = wp_get_attachment_metadata( $attachment_id );
+		$old_base_dir = trailingslashit( dirname( $current_path ) );
 
 		$original_mime = get_post_meta( $attachment_id, '_mopw_original_mime', true );
 
@@ -360,6 +438,12 @@ class Mopw_Optimizer {
 		$metadata = wp_generate_attachment_metadata( $attachment_id, $restored_path );
 		wp_update_attachment_metadata( $attachment_id, $metadata );
 
+		// Now that the restored-format sizes exist, remove the old
+		// optimized-format size files left over from before the restore.
+		if ( $original_mime ) {
+			Mopw_Media_Handler::delete_registered_sizes( $old_base_dir, $old_metadata );
+		}
+
 		wp_delete_file( $backup_path );
 		delete_post_meta( $attachment_id, '_mopw_optimized' );
 		delete_post_meta( $attachment_id, '_mopw_original_size' );
@@ -373,5 +457,43 @@ class Mopw_Optimizer {
 		do_action( 'mopw_after_restore', $attachment_id );
 
 		return array( 'success' => true );
+	}
+
+	/**
+	 * Re-optimizes an already-optimized attachment using CURRENT settings.
+	 *
+	 * Internally, this restores the true original first (so we're never
+	 * re-compressing an already-lossy WebP/PNG, which would compound
+	 * quality loss), then runs a normal optimization pass on that clean
+	 * original. Reuses restore_original() + process() rather than a
+	 * separate code path, so any future fix to either automatically
+	 * benefits re-optimization too.
+	 *
+	 * @param int $attachment_id
+	 * @return array{success:bool, error?:string}
+	 */
+	public static function reoptimize( $attachment_id ) {
+
+		if ( '1' !== get_post_meta( $attachment_id, '_mopw_optimized', true ) ) {
+			return array( 'success' => false, 'error' => __( 'This image has not been optimized yet — use Bulk Optimize instead.', 'webxperthub-media-optimizer' ) );
+		}
+
+		$restore_result = self::restore_original( $attachment_id );
+
+		if ( ! $restore_result['success'] ) {
+			// If restore fails (e.g. the backup no longer exists), we
+			// cannot safely re-optimize — doing so from the current,
+			// already-lossy file would compound quality loss further,
+			// so we stop here rather than proceeding on a bad foundation.
+			return array(
+				'success' => false,
+				/* translators: %s is the underlying restore error message. */
+				'error'   => sprintf( __( 'Could not re-optimize: %s', 'webxperthub-media-optimizer' ), $restore_result['error'] ),
+			);
+		}
+
+		// restore_original() already cleared _mopw_optimized, so process()
+		// runs exactly as it would on a fresh, never-optimized image.
+		return self::process( $attachment_id );
 	}
 }
