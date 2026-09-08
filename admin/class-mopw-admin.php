@@ -103,6 +103,7 @@ class Mopw_Admin {
 		}
 
 		$cancelled = Mopw_Queue::get_instance()->cancel_all_pending();
+		Mopw_Queue::get_instance()->end_run();
 
 		wp_send_json_success( array( 'cancelled' => $cancelled ) );
 	}
@@ -158,14 +159,17 @@ class Mopw_Admin {
 			? Mopw_Queue::get_instance()->count_unoptimized()
 			: 0;
 
+		$queue = Mopw_Queue::get_instance();
+
 		wp_localize_script(
 			'mopw-admin',
 			'mopwAdmin',
 			array(
 				'ajaxUrl'          => admin_url( 'admin-ajax.php' ),
 				'nonce'            => wp_create_nonce( 'mopw_bulk_nonce' ),
-				'unoptimizedCount' => $unoptimized_count,
-				'startingLabel'    => __( 'Starting…', 'webxperthub-media-optimizer' ),
+				'unoptimizedCount' => Mopw_Queue::get_instance()->count_unoptimized(),
+				'runActive'        => $queue->is_run_active(),
+				'runTotal'         => $queue->get_run_total(),
 				'i18n'             => array(
 					'noImages'       => __( 'No images to optimize — your media library is already up to date.', 'webxperthub-media-optimizer' ),
 					'somethingWrong' => __( 'Something went wrong.', 'webxperthub-media-optimizer' ),
@@ -312,52 +316,63 @@ class Mopw_Admin {
 	}
 
 	public function render_bulk_page() {
-		if ( ! current_user_can( 'manage_options' ) ) {
-			return;
-		}
+    if ( ! current_user_can( 'manage_options' ) ) {
+        return;
+    }
 
-		$queue       = Mopw_Queue::get_instance();
-		$pending     = $queue->count_pending();
-		$unoptimized = $queue->count_unoptimized();
-		?>
-		<div class="wrap mopw-wrap">
-			<h1><?php esc_html_e( 'Bulk Optimize', 'webxperthub-media-optimizer' ); ?></h1>
-			<p><?php esc_html_e( 'Queue every un-optimized image in your Media Library for background processing.', 'webxperthub-media-optimizer' ); ?></p>
+    $queue        = Mopw_Queue::get_instance();
+    $pending      = $queue->count_pending();
+    $unoptimized  = $queue->count_unoptimized();
+    $run_active   = $queue->is_run_active();
+    $run_total    = $queue->get_run_total();
+    ?>
+    <div class="wrap mopw-wrap">
+        <h1><?php esc_html_e( 'Bulk Optimize', 'webxperthub-media-optimizer' ); ?></h1>
+        <p><?php esc_html_e( 'Queue every un-optimized image in your Media Library for background processing.', 'webxperthub-media-optimizer' ); ?></p>
 
-			<p>
-				<?php if ( $pending > 0 ) : ?>
-					<?php
-					printf(
-						/* translators: %d is the number of images currently in the processing queue. */
-						esc_html__( 'Currently processing: %d images remaining in queue.', 'webxperthub-media-optimizer' ),
-						(int) $pending
-					);
-					?>
-				<?php else : ?>
-					<?php
-					printf(
-						/* translators: %d is the number of un-optimized images found in the Media Library. */
-						esc_html__( '%d images in your Media Library have not been optimized yet.', 'webxperthub-media-optimizer' ),
-						(int) $unoptimized
-					);
-					?>
-				<?php endif; ?>
-			</p>
+        <p id="mopw-status-text">
+            <?php if ( $pending > 0 ) : ?>
+                <?php
+                printf(
+                    esc_html__( 'Currently processing: %d images remaining in queue.', 'webxperthub-media-optimizer' ),
+                    (int) $pending
+                );
+                ?>
+            <?php else : ?>
+                <?php
+                printf(
+                    esc_html__( '%d images in your Media Library have not been optimized yet.', 'webxperthub-media-optimizer' ),
+                    (int) $unoptimized
+                );
+                ?>
+            <?php endif; ?>
+        </p>
 
-			<button type="button" id="mopw-start-bulk" class="button button-primary">
-				<?php esc_html_e( 'Start Bulk Optimize', 'webxperthub-media-optimizer' ); ?>
-			</button>
+        <button type="button" id="mopw-start-bulk" class="button button-primary" <?php disabled( $run_active ); ?>>
+            <?php esc_html_e( 'Start Bulk Optimize', 'webxperthub-media-optimizer' ); ?>
+        </button>
 
-			<button type="button" id="mopw-cancel-bulk" class="button" style="display:none;">
-				<?php esc_html_e( 'Cancel', 'webxperthub-media-optimizer' ); ?>
-			</button>
+        <button type="button" id="mopw-cancel-bulk" class="button" style="<?php echo $run_active ? '' : 'display:none;'; ?>">
+            <?php esc_html_e( 'Cancel', 'webxperthub-media-optimizer' ); ?>
+        </button>
 
-			<div id="mopw-progress-wrap" style="display:none; margin-top:20px;">
-				<progress id="mopw-progress-bar" value="0" max="100" style="width:100%;"></progress>
-				<p id="mopw-progress-text"></p>
-			</div>
-		</div>
-		<?php
+        <div id="mopw-progress-wrap" style="<?php echo $run_active ? '' : 'display:none;'; ?> margin-top:20px;">
+            <progress id="mopw-progress-bar" value="<?php echo (int) ( $run_total - $pending ); ?>" max="<?php echo (int) $run_total; ?>" style="width:100%;"></progress>
+            <p id="mopw-progress-text">
+                <?php
+                if ( $run_active ) {
+                    printf(
+                        /* translators: 1: completed count, 2: total count */
+                        esc_html__( 'Resuming: %1$d of %2$d processed so far…', 'webxperthub-media-optimizer' ),
+                        (int) ( $run_total - $pending ),
+                        (int) $run_total
+                    );
+                }
+                ?>
+            </p>
+        </div>
+    </div>
+    <?php
 	}
 
 	/**
@@ -370,7 +385,12 @@ class Mopw_Admin {
 			wp_send_json_error( array( 'message' => __( 'Permission denied.', 'webxperthub-media-optimizer' ) ), 403 );
 		}
 
-		$queued = Mopw_Queue::get_instance()->enqueue_all_unoptimized();
+		$queue  = Mopw_Queue::get_instance();
+		$queued = $queue->enqueue_all_unoptimized();
+
+		if ( $queued > 0 ) {
+			$queue->start_run( $queued );
+		}
 
 		wp_send_json_success( array( 'queued' => $queued ) );
 	}
@@ -385,7 +405,12 @@ class Mopw_Admin {
 			wp_send_json_error( array( 'message' => __( 'Permission denied.', 'webxperthub-media-optimizer' ) ), 403 );
 		}
 
-		$stats = Mopw_Queue::get_instance()->process_batch();
+		$queue = Mopw_Queue::get_instance();
+		$stats = $queue->process_batch();
+
+		if ( $stats['remaining'] <= 0 ) {
+			$queue->end_run();
+		}
 
 		wp_send_json_success( $stats );
 	}

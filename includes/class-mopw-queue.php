@@ -373,4 +373,28 @@ class Mopw_Queue {
 
 		return (int) $affected;
 	}
+
+	/**
+	 * Records the total image count for the run currently starting, so
+	 * the progress bar can compute a percentage even after a page reload
+	 * — without this, we'd only ever know "how many are left," never
+	 * "out of how many," once client-side JS state is lost.
+	 */
+	public function start_run( $total ) {
+		update_option( 'mopw_bulk_run_total', (int) $total, false );
+		update_option( 'mopw_bulk_run_active', 1, false );
+	}
+
+	public function end_run() {
+		delete_option( 'mopw_bulk_run_total' );
+		delete_option( 'mopw_bulk_run_active' );
+	}
+
+	public function is_run_active() {
+		return (bool) get_option( 'mopw_bulk_run_active', false ) && $this->count_pending() > 0;
+	}
+
+	public function get_run_total() {
+		return (int) get_option( 'mopw_bulk_run_total', 0 );
+	}
 }

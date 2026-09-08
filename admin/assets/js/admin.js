@@ -218,6 +218,13 @@
       }
     }
 
+    if (mopwAdmin.runActive) {
+      totalQueuedAtStart = parseInt(mopwAdmin.runTotal, 10) || 0;
+      showProgress();
+      pollTimer = setInterval(runNextBatch, 2000);
+      runNextBatch();
+    }
+
     // --- Restore Original (Media Library list view) ---
     // Deliberately OUTSIDE the $startButton guard above, since this
     // needs to work on the Media Library page (upload.php), where
