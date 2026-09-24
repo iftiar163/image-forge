@@ -435,4 +435,96 @@ class Mopw_Queue {
 	public function get_run_total() {
 		return (int) get_option( 'mopw_bulk_run_total', 0 );
 	}
+
+	/**
+	 * Returns every row currently in 'error' status, joined with basic
+	 * attachment info, for display on the Failed Images admin screen.
+	 *
+	 * @return array List of objects: {id, attachment_id, error_message,
+	 *               updated_at, title, thumbnail_url}
+	 */
+
+	public function get_failed_rows() {
+		global $wpdb;
+		$table = $this->table_name();
+
+		// phpcs:ignore WordPress.DB.DirectDatabaseQuery.DirectQuery
+		$rows = $wpdb->get_results(
+			'SELECT id, attachment_id, error_message, attempts, updated_at FROM ' . esc_sql( $table ) . " WHERE status = 'error' ORDER BY updated_at DESC"
+		);
+
+		$results = array();
+
+		foreach ( $rows as $row ) {
+			$attachment_id = $row->attachment_id;
+			$post		  = get_post( $attachment_id );
+
+			if( !$post ) {
+				continue;
+			}
+
+			$results[] = array(
+				'id'             => (int) $row->id,
+				'attachment_id'  => $attachment_id,
+				'title'          => get_the_title( $attachment_id ),
+				'thumbnail_url'  => wp_get_attachment_image_url( $attachment_id, array( 40, 40 ) ),
+				'edit_url'       => get_edit_post_link( $attachment_id ),
+				'error_message'  => $row->error_message,
+				'attempts'       => (int) $row->attempts,
+				'updated_at'     => $row->updated_at,
+			);
+		}
+
+		return $results;
+	}
+
+	/**
+	 * Resets a single failed row back to 'pending' so the next batch
+	 * picks it up and retries — resets its attempt counter too, since
+	 * the user explicitly asked for a fresh try.
+	 *
+	 * @param int $row_id
+	 * @return bool
+	 */
+
+	public function retry_failed_row( $row_id ) {
+		global $wpdb;
+		$row_id = absint( $row_id );
+
+		// phpcs:ignore WordPress.DB.DirectDatabaseQuery.DirectQuery
+		$updated = $wpdb->update(
+			$this->table_name(),
+			array(
+				'status'        => 'pending',
+				'attempts'      => 0,
+				'error_message' => null,
+				'updated_at'    => current_time( 'mysql' ),
+			),
+			array( 'id' => $row_id ),
+			array( '%s', '%d', '%s', '%s' ),
+			array( '%d' )
+		);
+
+		wp_cache_delete( 'mopw_pending_count', 'mopw' );
+
+		return false !== $updated;
+	}
+
+	/**
+	 * Permanently removes a failed row from the queue without retrying —
+	 * useful for images the user has decided aren't worth optimizing
+	 * (e.g. a corrupt file they plan to re-upload manually instead).
+	 *
+	 * @param int $row_id
+	 * @return bool
+	 */
+	public function dismiss_failed_row( $row_id ) {
+		global $wpdb;
+		$row_id = absint( $row_id );
+
+		// phpcs:ignore WordPress.DB.DirectDatabaseQuery.DirectQuery
+		$deleted = $wpdb->delete( $this->table_name(), array( 'id' => $row_id ), array( '%d' ) );
+
+		return false !== $deleted;
+	}
 }

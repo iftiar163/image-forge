@@ -90,10 +90,7 @@
           $progressBar.attr("value", Math.max(0, completed));
           $progressText.text(
             sprintf(
-              t(
-                "processed",
-                "Processed %1$d of %2$d (%3$d failed this batch)",
-              ),
+              t("processed", "Processed %1$d of %2$d (%3$d failed this batch)"),
               completed,
               totalQueuedAtStart,
               stats.failed,
@@ -324,5 +321,52 @@
           $link.text(originalText);
         });
     });
+
+    // --- Failed Images page: Retry / Dismiss ---
+    $(document).on(
+      "click",
+      ".mopw-retry-failed, .mopw-dismiss-failed",
+      function () {
+        var $button = $(this);
+        var $row = $button.closest("tr");
+        var rowId = $button.data("row-id");
+        var isDismiss = $button.hasClass("mopw-dismiss-failed");
+        var action = isDismiss ? "mopw_dismiss_failed" : "mopw_retry_failed";
+
+        if (
+          isDismiss &&
+          !confirm(
+            "Remove this entry? This image will not be retried automatically.",
+          )
+        ) {
+          return;
+        }
+
+        $row.find("button").prop("disabled", true);
+
+        $.post(mopwAdmin.ajaxUrl, {
+          action: action,
+          row_id: rowId,
+          nonce: mopwAdmin.nonce,
+        })
+          .done(function (response) {
+            if (response.success) {
+              $row.fadeOut(200, function () {
+                $row.remove();
+              });
+            } else {
+              alert(
+                (response.data && response.data.message) ||
+                  "Something went wrong.",
+              );
+              $row.find("button").prop("disabled", false);
+            }
+          })
+          .fail(function () {
+            alert("Could not reach the server. Please try again.");
+            $row.find("button").prop("disabled", false);
+          });
+      },
+    );
   });
 })(jQuery);

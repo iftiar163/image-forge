@@ -14,9 +14,11 @@ class Mopw_Admin {
 	private static $instance = null;
 	private $settings_hook;
 	private $bulk_hook;
+	private $failed_hook;
 
 	const SETTINGS_SLUG = 'webxperthub-media-optimizer-settings';
 	const BULK_SLUG     = 'webxperthub-media-optimizer-bulk-optimize';
+	const FAILED_SLUG = 'webxperthub-media-optimizer-failed';
 
 	public static function get_instance() {
 		if ( null === self::$instance ) {
@@ -42,6 +44,132 @@ class Mopw_Admin {
 			'plugin_action_links_' . plugin_basename( MOPW_PLUGIN_DIR . 'webxperthub-media-optimizer.php' ),
 			array( $this, 'add_settings_link' )
 		);
+
+		add_filter( 'manage_media_columns', array( $this, 'add_media_columns' ) );
+		add_action( 'manage_media_custom_column', array( $this, 'render_media_column' ), 10, 2 );
+		add_filter( 'manage_upload_sortable_columns', array( $this, 'add_sortable_media_columns' ) );
+		add_action( 'pre_get_posts', array( $this, 'handle_media_column_sorting' ) );
+
+		add_action( 'wp_ajax_mopw_retry_failed', array( $this, 'ajax_retry_failed' ) );
+		add_action( 'wp_ajax_mopw_dismiss_failed', array( $this, 'ajax_dismiss_failed' ) );
+	}
+
+	public function ajax_retry_failed() {
+		check_ajax_referer( 'mopw_bulk_nonce', 'nonce' );
+
+		if( ! current_user_can( 'manage_options' ) ){
+			wp_send_json_error( array( 'message' => __( 'Permission denied.', 'webxperthub-media-optimizer' ) ), 403 );
+		}
+
+		$row_id = isset( $_POST['row_id'] ) ? absint( $_POST[ 'row_id' ] ) : 0;
+		$ok     = Mopw_Queue::get_instance()->retry_failed_row( $row_id );
+
+		if( ! $ok ) {
+			wp_send_json_error( array( 'message' => __( 'Could not retry this image.', 'webxperthub-media-optimizer' ) ) );
+		}
+
+		wp_send_json_success();
+	}
+
+	public function ajax_dismiss_failed() {
+		check_admin_referer('mopw_bulk_nonce', 'nonce');
+
+		if( ! current_user_can( 'manage_options' ) ) {
+			wp_send_json_error( array( 'message' => __( 'Permission denied.', 'webxperthub-media-optimizer' ) ), 403 );
+		}
+
+		$row_id = isset( $_POST['row_id'] ) ? absint( $_POST['row_id'] ) : 0;
+		$ok     = Mopw_Queue::get_instance()->dismiss_failed_row( $row_id );
+
+		if( ! $ok ) {
+			wp_send_json_error( array( 'message' => __( 'Could not dismiss this entry.', 'webxperthub-media-optimizer' ) ) );
+		}
+
+		wp_send_json_success();
+	}
+
+
+
+	/**
+	 * Registers our custom "Optimization" column in the Media Library
+	 * list view, placed right after the default "Author" column.
+	 *
+	 * @param array $columns Existing columns.
+	 * @return array
+	 */
+
+	public function add_media_columns( $columns ) {
+		$columns['mopw_savings'] = __( 'Optimization', 'webxperthub-media-optimizer' );
+		return $columns;
+	}
+
+	/**
+	 * Renders the content of our column for each attachment row.
+	 *
+	 * @param string $column_name Current column being rendered.
+	 * @param int    $attachment_id
+	 */
+
+	public function render_media_column( $column_name, $attachment_id ) {
+
+		if( 'mopw_savings' !== $column_name ) {
+			return;
+		}
+
+		if( '1' !== get_post_meta( $attachment_id, '_mopw_optimized', true ) ) {
+			echo '<span class="mopw-column-not-optimized">' . esc_html__( 'Not optimized', 'webxperthub-media-optimizer' ) . '</span>';
+        	return;
+		}
+
+		$original_size = (int) get_post_meta( $attachment_id, '_mopw_original_size', true );
+		$new_size      = (int) get_post_meta( $attachment_id, '_mopw_new_size', true );
+
+		if( $original_size <= 0 || $new_size <= 0 ) {
+			 echo '<span class="mopw-column-not-optimized">' . esc_html__( '—', 'webxperthub-media-optimizer' ) . '</span>';
+            return;
+		}
+
+		$saved_bytes   = $original_size - $new_size;
+		$saved_percent = round( ( $saved_bytes / $original_size ) * 100 );
+
+		printf(
+			'<div class="mopw-savings-cell">
+				<span class="mopw-savings-percent">-%1$s%%</span>
+				<span class="mopw-savings-detail">%2$s → %3$s</span>
+			</div>',
+			esc_html( $saved_percent ),
+			esc_html( Mopw_Media_Handler::format_bytes( $original_size ) ),
+			esc_html( Mopw_Media_Handler::format_bytes( $new_size ) )
+		);
+	}
+
+	/**
+	 * Marks our column as sortable. WordPress passes the value we set
+	 * here ('mopw_savings') through as $_GET['orderby'] when clicked.
+	 *
+	 * @param array $columns
+	 * @return array
+	 */
+
+	public function add_sortable_media_columns( $columns ) {
+		$columns['mopw_savings'] = 'mopw_savings';
+		return $columns;
+	}
+
+	public function handle_media_column_sorting( $query ) {
+
+		if ( ! is_admin() || ! $query->is_main_query() ) {
+			return;
+		}
+
+		if ( 'mopw_savings' !== $query->get( 'orderby' ) ) {
+			return;
+		}
+
+		$meta_key = apply_filters( 'mopw_savings_sort_meta_key', '_mopw_new_size' );
+
+		$query->set( 'meta_key', $meta_key );
+		$query->set( 'orderby', 'meta_value_num' );
 	}
 
 	/**
@@ -166,6 +294,80 @@ class Mopw_Admin {
 			self::BULK_SLUG,
 			array( $this, 'render_bulk_page' )
 		);
+
+		$this->failed_hook = add_submenu_page(
+			self::SETTINGS_SLUG,
+			__( 'Failed Images', 'webxperthub-media-optimizer' ),
+			__( 'Failed Images', 'webxperthub-media-optimizer' ),
+			'manage_options',
+			self::FAILED_SLUG,
+			array( $this, 'render_failed_page' )
+		);
+	}
+
+	public function render_failed_page() {
+		if ( ! current_user_can( 'manage_options' ) ) {
+			return;
+		}
+
+		$failed_rows = Mopw_Queue::get_instance()->get_failed_rows();
+		?>
+		<div class="wrap mopw-wrap">
+			<h1><?php esc_html_e( 'Failed Images', 'webxperthub-media-optimizer' ); ?></h1>
+
+			<?php if ( empty( $failed_rows ) ) : ?>
+				<p><?php esc_html_e( 'No failed images — everything processed successfully.', 'webxperthub-media-optimizer' ); ?></p>
+			<?php else : ?>
+				<p>
+					<?php
+					printf(
+						/* translators: %d is the number of images that failed optimization. */
+						esc_html__( '%d image(s) could not be optimized after multiple attempts.', 'webxperthub-media-optimizer' ),
+						count( $failed_rows )
+					);
+					?>
+				</p>
+
+				<table class="wp-list-table widefat fixed striped">
+					<thead>
+						<tr>
+							<th style="width:50px;"></th>
+							<th><?php esc_html_e( 'Image', 'webxperthub-media-optimizer' ); ?></th>
+							<th><?php esc_html_e( 'Error', 'webxperthub-media-optimizer' ); ?></th>
+							<th><?php esc_html_e( 'Attempts', 'webxperthub-media-optimizer' ); ?></th>
+							<th><?php esc_html_e( 'Last Attempt', 'webxperthub-media-optimizer' ); ?></th>
+							<th><?php esc_html_e( 'Actions', 'webxperthub-media-optimizer' ); ?></th>
+						</tr>
+					</thead>
+					<tbody>
+						<?php foreach ( $failed_rows as $row ) : ?>
+							<tr data-row-id="<?php echo esc_attr( $row['id'] ); ?>">
+								<td>
+									<?php if ( $row['thumbnail_url'] ) : ?>
+										<img src="<?php echo esc_url( $row['thumbnail_url'] ); ?>" width="40" height="40" alt="">
+									<?php endif; ?>
+								</td>
+								<td>
+									<a href="<?php echo esc_url( $row['edit_url'] ); ?>"><?php echo esc_html( $row['title'] ); ?></a>
+								</td>
+								<td><?php echo esc_html( $row['error_message'] ); ?></td>
+								<td><?php echo esc_html( $row['attempts'] ); ?></td>
+								<td><?php echo esc_html( $row['updated_at'] ); ?></td>
+								<td>
+									<button type="button" class="button mopw-retry-failed" data-row-id="<?php echo esc_attr( $row['id'] ); ?>">
+										<?php esc_html_e( 'Retry', 'webxperthub-media-optimizer' ); ?>
+									</button>
+									<button type="button" class="button mopw-dismiss-failed" data-row-id="<?php echo esc_attr( $row['id'] ); ?>">
+										<?php esc_html_e( 'Dismiss', 'webxperthub-media-optimizer' ); ?>
+									</button>
+								</td>
+							</tr>
+						<?php endforeach; ?>
+					</tbody>
+				</table>
+			<?php endif; ?>
+		</div>
+		<?php
 	}
 
 	public function add_settings_link( $links ) {
@@ -177,7 +379,7 @@ class Mopw_Admin {
 
 	public function enqueue_assets( $hook ) {
 		
-		$our_pages = array( $this->settings_hook, $this->bulk_hook, 'upload.php' );
+		$our_pages = array( $this->settings_hook, $this->bulk_hook, $this->failed_hook, 'upload.php' );
 
 		if( ! in_array( $hook, $our_pages, true ) ) {
 			return;
