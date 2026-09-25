@@ -345,12 +345,43 @@ class Mopw_Optimizer {
 		update_post_meta( $attachment_id, '_mopw_original_size', $original_size );
 		update_post_meta( $attachment_id, '_mopw_new_size', $new_size );
 
+		$saved_bytes = max( 0, $original_size - $new_size );
+    	self::increment_lifetime_stats( 1, $saved_bytes );
+
 		clean_post_cache( $attachment_id );
 		wp_cache_delete( 'mopw_unoptimized_count', 'mopw' );
 
 		do_action( 'mopw_after_optimize', $attachment_id, $original_size, $new_size );
 
 		return array( 'success' => true );
+	}
+
+	private static function increment_lifetime_stats( $images_delta, $bytes_delta ) {
+		global $wpdb;
+
+		// Ensure both option rows exist first (autoloaded, since these
+		// are read on every Bulk Optimize page load).
+		if ( false === get_option( 'mopw_lifetime_images_optimized' ) ) {
+			add_option( 'mopw_lifetime_images_optimized', 0 );
+		}
+		if ( false === get_option( 'mopw_lifetime_bytes_saved' ) ) {
+			add_option( 'mopw_lifetime_bytes_saved', 0 );
+		}
+
+		// phpcs:ignore WordPress.DB.DirectDatabaseQuery.DirectQuery
+		$wpdb->query( $wpdb->prepare(
+			"UPDATE {$wpdb->options} SET option_value = option_value + %d WHERE option_name = 'mopw_lifetime_images_optimized'",
+			$images_delta
+		) );
+
+		// phpcs:ignore WordPress.DB.DirectDatabaseQuery.DirectQuery
+		$wpdb->query( $wpdb->prepare(
+			"UPDATE {$wpdb->options} SET option_value = option_value + %d WHERE option_name = 'mopw_lifetime_bytes_saved'",
+			$bytes_delta
+		) );
+
+		wp_cache_delete( 'mopw_lifetime_images_optimized', 'options' );
+		wp_cache_delete( 'mopw_lifetime_bytes_saved', 'options' );
 	}
 
 	/**
@@ -453,6 +484,14 @@ class Mopw_Optimizer {
 
 		clean_post_cache( $attachment_id );
 		wp_cache_delete( 'mopw_unoptimized_count', 'mopw' );
+
+		// Decrement lifetime stats — this image's savings no longer exist
+		// once restored, so lifetime totals shouldn't keep counting them.
+		$reverted_original_size = (int) get_post_meta( $attachment_id, '_mopw_original_size', true );
+		$reverted_new_size      = (int) get_post_meta( $attachment_id, '_mopw_new_size', true );
+		$reverted_saved_bytes   = max( 0, $reverted_original_size - $reverted_new_size );
+
+		self::increment_lifetime_stats( -1, -$reverted_saved_bytes );
 
 		do_action( 'mopw_after_restore', $attachment_id );
 

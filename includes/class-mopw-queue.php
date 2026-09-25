@@ -527,4 +527,18 @@ class Mopw_Queue {
 
 		return false !== $deleted;
 	}
+
+	/**
+	 * Returns lifetime totals: images optimized and bytes saved, across
+	 * the entire history of this plugin's use on this site — not just
+	 * the current queue state.
+	 *
+	 * @return array{images:int, bytes:int}
+	 */
+	public function get_lifetime_stats() {
+		return array(
+			'images' => (int) get_option( 'mopw_lifetime_images_optimized', 0 ),
+			'bytes'  => (int) get_option( 'mopw_lifetime_bytes_saved', 0 ),
+		);
+	}
 }

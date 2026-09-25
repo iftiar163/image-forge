@@ -559,9 +559,22 @@ class Mopw_Admin {
     $unoptimized  = $queue->count_unoptimized();
     $run_active   = $queue->is_run_active();
     $run_total    = $queue->get_run_total();
+	$lifetime      = $queue->get_lifetime_stats();
     ?>
     <div class="wrap mopw-wrap">
         <h1><?php esc_html_e( 'Bulk Optimize', 'webxperthub-media-optimizer' ); ?></h1>
+		<?php if ( $lifetime['images'] > 0 ) : ?>
+            <div class="mopw-lifetime-stats">
+                <div class="mopw-stat-box">
+                    <span class="mopw-stat-number"><?php echo esc_html( number_format_i18n( $lifetime['images'] ) ); ?></span>
+                    <span class="mopw-stat-label"><?php esc_html_e( 'Images Optimized', 'webxperthub-media-optimizer' ); ?></span>
+                </div>
+                <div class="mopw-stat-box">
+                    <span class="mopw-stat-number"><?php echo esc_html( Mopw_Media_Handler::format_bytes( $lifetime['bytes'] ) ); ?></span>
+                    <span class="mopw-stat-label"><?php esc_html_e( 'Total Space Saved', 'webxperthub-media-optimizer' ); ?></span>
+                </div>
+            </div>
+        <?php endif; ?>
         <p><?php esc_html_e( 'Queue every un-optimized image in your Media Library for background processing.', 'webxperthub-media-optimizer' ); ?></p>
 
         <p id="mopw-status-text">

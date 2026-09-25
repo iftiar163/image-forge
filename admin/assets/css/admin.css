@@ -107,3 +107,32 @@
   color: #a7aaad;
   font-style: italic;
 }
+
+.mopw-lifetime-stats {
+  display: flex;
+  gap: 16px;
+  margin: 16px 0 24px;
+}
+
+.mopw-stat-box {
+  background: #fff;
+  border: 1px solid #dcdcde;
+  border-radius: 4px;
+  padding: 16px 24px;
+  min-width: 160px;
+}
+
+.mopw-stat-number {
+  display: block;
+  font-size: 28px;
+  font-weight: 700;
+  color: #1e3a5f;
+  line-height: 1.2;
+}
+
+.mopw-stat-label {
+  display: block;
+  font-size: 13px;
+  color: #646970;
+  margin-top: 4px;
+}
